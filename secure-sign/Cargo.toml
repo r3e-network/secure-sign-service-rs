@@ -1,0 +1,13 @@
+[package]
+name = "secure-sign"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+secure-sign-core = { path = "../secure-sign-core", features = ["std"] }
+secure-sign-rpc  = { path = "../secure-sign-rpc" }
+
+tokio = { version = "1", features = ["full"] }
+tonic = { version = "0.12" }
+
+clap = { version = "4.5", features = ["derive"] }

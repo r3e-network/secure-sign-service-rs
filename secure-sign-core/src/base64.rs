@@ -1,0 +1,60 @@
+// Copyright @ 2025 - Present, R3E Network
+// All Rights Reserved
+
+use alloc::vec::Vec;
+use alloc::string::String;
+
+use base64::{engine::general_purpose::STANDARD, Engine};
+
+pub trait ToBase64 {
+    fn to_base64_std(&self) -> String;
+}
+
+impl<T: AsRef<[u8]>> ToBase64 for T {
+    #[inline]
+    fn to_base64_std(&self) -> String {
+        STANDARD.encode(self.as_ref())
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Copy, Clone, thiserror::Error)]
+pub enum FromBase64Error {
+    #[error("base64: invalid character '{0}'")]
+    InvalidChar(char),
+
+    #[error("base64: invalid length({0})")]
+    InvalidLength(usize),
+
+    #[error("base64: invalid padding")]
+    InvalidPadding,
+
+    #[error("base64: invalid last symbol({0})")]
+    InvalidLastSymbol(char),
+}
+
+impl From<base64::DecodeError> for FromBase64Error {
+    fn from(value: base64::DecodeError) -> Self {
+        use base64::DecodeError as Error;
+        match value {
+            Error::InvalidLength(len) => Self::InvalidLength(len),
+            Error::InvalidByte(_, ch) => Self::InvalidChar(ch as char),
+            Error::InvalidPadding => Self::InvalidPadding,
+            Error::InvalidLastSymbol(_, ch) => Self::InvalidLastSymbol(ch as char),
+        }
+    }
+}
+
+pub trait FromBase64: Sized {
+    type Error;
+
+    fn from_base64_std<T: AsRef<[u8]>>(src: &T) -> Result<Self, Self::Error>;
+}
+
+impl FromBase64 for Vec<u8> {
+    type Error = FromBase64Error;
+
+    #[inline]
+    fn from_base64_std<T: AsRef<[u8]>>(src: &T) -> Result<Vec<u8>, Self::Error> {
+        STANDARD.decode(src.as_ref()).map_err(FromBase64Error::from)
+    }
+}

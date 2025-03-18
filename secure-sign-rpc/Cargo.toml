@@ -1,0 +1,16 @@
+[package]
+name = "secure-sign-rpc"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+prost = { version = "0.13" }
+tonic = { version = "0.12" }
+
+secure-sign-core = { path = "../secure-sign-core", features = ["std"] }
+
+[build-dependencies]
+prost-build = { version = "0.13" }
+tonic-build = { version = "0.12" }
+
+secure-sign-core = { path = "../secure-sign-core", features = ["std"] }
