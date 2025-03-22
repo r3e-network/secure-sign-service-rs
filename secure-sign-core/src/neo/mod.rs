@@ -7,9 +7,8 @@ pub mod nep6;
 pub mod sign;
 pub mod signpb;
 
-use alloc::vec::Vec;
 use alloc::string::String;
-use serde::{Deserialize, Serialize};
+use alloc::vec::Vec;
 
 use crate::base58::ToBase58Check;
 use crate::h160::{H160, H160_SIZE};
@@ -17,8 +16,11 @@ use crate::hash::{Ripemd160, Sha256};
 use crate::neo::check_sign::{CheckSign, ToCheckSign};
 use crate::secp256r1::PublicKey;
 
+use serde::{Deserialize, Serialize};
+
 pub const SCRIPT_HASH_SIZE: usize = H160_SIZE;
 pub const ADDRESS_NEO3: u8 = 0x35;
+pub const SIGN_DATA_SIZE: usize = 4 + 32; //sizeof(u32) + sizeof(H256)
 
 pub trait ToScriptHash {
     fn to_script_hash(&self) -> H160;
@@ -35,6 +37,21 @@ impl ToScriptHash for CheckSign {
     #[inline]
     fn to_script_hash(&self) -> H160 {
         H160::from_le_bytes(self.as_bytes().sha256().ripemd160())
+    }
+}
+
+pub trait ToSignData {
+    fn to_sign_data(&self, network: u32) -> [u8; SIGN_DATA_SIZE];
+}
+
+impl<T: AsRef<[u8]>> ToSignData for T {
+    #[inline]
+    fn to_sign_data(&self, network: u32) -> [u8; SIGN_DATA_SIZE] {
+        let mut data = [0u8; SIGN_DATA_SIZE];
+        let hash = self.as_ref().sha256();
+        data[..4].copy_from_slice(&network.to_le_bytes());
+        data[4..].copy_from_slice(&hash);
+        data
     }
 }
 
@@ -80,7 +97,14 @@ impl ToNeo3Address for PublicKey {
     }
 }
 
+impl Into<String> for Address {
+    fn into(self) -> String {
+        self.base58check
+    }
+}
+
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Serialize, Deserialize)]
+#[repr(u32)]
 pub enum ParamType {
     Any = 0x00,
     Boolean = 0x10,
@@ -97,9 +121,19 @@ pub enum ParamType {
     Void = 0xff,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NamedParamType {
+    /// name is optional
+    #[serde(default)]
+    pub name: String,
+
+    #[serde(rename = "type")]
+    pub typ: ParamType,
+}
+
 #[derive(Debug, Clone)]
 pub struct Contract {
     pub script: Vec<u8>,
     pub deployed: bool,
-    pub parameters: Vec<ParamType>,
+    pub parameters: Vec<NamedParamType>,
 }

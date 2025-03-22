@@ -1,0 +1,27 @@
+// Copyright @ 2025 - Present, R3E Network
+// All Rights Reserved
+
+syntax = "proto3";
+
+package startpb;
+
+message DiffieHellmanRequest {
+    bytes blob_ephemeral_public_key = 1;
+}
+
+message DiffieHellmanResponse {
+    bytes alice_ephemeral_public_key = 1;
+}
+
+message StartSignerRequest {
+    bytes encrypted_wallet_passphrase = 1;
+    bytes nonce = 2;
+}
+
+message StartSignerResponse { }
+
+service StartupService {
+    rpc DiffieHellman(DiffieHellmanRequest) returns (DiffieHellmanResponse) {}
+
+    rpc StartSigner(StartSignerRequest) returns (StartSignerResponse) {}
+}

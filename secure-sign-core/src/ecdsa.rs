@@ -3,11 +3,11 @@
 
 use alloc::string::{String, ToString};
 
+use crate::bytes::ToArray;
+use crate::secp256r1;
+
 use p256::ecdsa::signature::{Signer, Verifier as P256Verifier};
 use p256::ecdsa::{Signature, SigningKey, VerifyingKey};
-
-use crate::bytes::{ToArray, ToRevArray};
-use crate::secp256r1;
 
 pub const ECC256_SIGN_SIZE: usize = 32 * 2;
 
@@ -19,7 +19,7 @@ pub trait Sign {
 }
 
 pub trait Verify {
-    type Sign: ?Sized;
+    type Sign;
     type Error;
 
     fn verify<T: AsRef<[u8]>>(&self, message: T, sign: &Self::Sign) -> Result<(), Self::Error>;
@@ -39,10 +39,7 @@ impl Sign for secp256r1::PrivateKey {
     type Error = SignError;
 
     fn sign<T: AsRef<[u8]>>(&self, message: T) -> Result<Self::Sign, Self::Error> {
-        use secp256r1::KEY_SIZE;
-
-        let key: [u8; KEY_SIZE] = self.as_le_bytes().to_rev_array();
-        let sk: SigningKey = p256::SecretKey::from_slice(&key)
+        let sk: SigningKey = p256::SecretKey::from_slice(self.as_be_bytes())
             .map(|key| key.into())
             .map_err(|_| SignError::InvalidPrivateKey)?;
 

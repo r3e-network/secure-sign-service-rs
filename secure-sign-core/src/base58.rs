@@ -4,9 +4,9 @@
 use alloc::string::String;
 use alloc::vec::Vec;
 
-use base58::{FromBase58, FromBase58Error, ToBase58};
-
 use crate::hash::Sha256;
+
+use ::base58::{FromBase58, FromBase58Error, ToBase58};
 
 pub trait ToBase58Check {
     fn to_base58_check(&self) -> String;
@@ -29,7 +29,7 @@ pub trait FromBase58Check: Sized {
     fn from_base58_check<T: AsRef<str>>(src: T) -> Result<Self, Self::Error>;
 }
 
-#[derive(Debug, PartialEq, Eq, Copy, Clone, thiserror::Error)]
+#[derive(Debug, Copy, Clone, thiserror::Error)]
 pub enum FromBase58CheckError {
     #[error("base58check: invalid character '{0}'")]
     InvalidChar(char),
@@ -63,6 +63,6 @@ impl FromBase58Check for Vec<u8> {
             return Err(Self::Error::InvalidChecksum);
         }
 
-        Ok(s[START_AT..s.len() - 4].to_vec())
+        Ok(s[START_AT..s.len() - 4].into())
     }
 }

@@ -1,0 +1,14 @@
+<EnclaveConfiguration>
+  <ProdID>0</ProdID>
+  <ISVSVN>0</ISVSVN>
+  <StackMaxSize>0x40000</StackMaxSize>
+  <HeapMaxSize>0x20000000</HeapMaxSize>
+  <TCSNum>64</TCSNum>
+  <!-- 0 = Thread Control Structure (TCS) is bound to the untrusted thread -->
+  <TCSPolicy>0</TCSPolicy>
+  <DisableDebug>1</DisableDebug>
+  <!-- Enclave configuration 'MiscSelect' and 'MiscSelectMask' will prevent enclave from using dynamic features. -->
+  <!-- To use the dynamic features on SGX2 platform, suggest to set MiscMask[0]=0 and MiscSelect[0]=1. -->
+  <MiscSelect>0</MiscSelect>
+  <MiscMask>0xFFFFFFFF</MiscMask>
+</EnclaveConfiguration>

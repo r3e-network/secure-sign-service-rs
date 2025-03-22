@@ -1,0 +1,38 @@
+[package]
+name = "secure-sign-sgx-enclave"
+version = "0.1.0"
+edition = "2021"
+
+[workspace]
+
+[lib]
+name = "secure_sign_sgx_enclave"
+crate-type = ["staticlib"]
+# crate-type = ["dylib"]
+
+
+[dependencies]
+secure-sign-core = { path = "../secure-sign-core", default-features = false }
+
+zeroize = { version = "1", default-features = false, features = ["alloc", "zeroize_derive"] }
+p256    = { version = "0.13", default-features = false, features = ["arithmetic", "ecdsa", "ecdh"]}
+aes-gcm = { version = "0.10", default-features = false, features = ["aes", "alloc"] }
+
+serde_json = { version = "1", default-features = false, features = ["alloc"] }
+
+prost       = { version = "0.13", default-features = false, features = ["prost-derive"] }
+prost-types = { version = "0.13", default-features = false }
+
+[features]
+default = []
+
+
+[profile.release]
+panic         = 'abort'
+lto           = "fat"
+opt-level     = 3
+codegen-units = 1
+strip         = true
+debug         = false
+debug-assertions = false
+overflow-checks  = false

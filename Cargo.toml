@@ -5,11 +5,11 @@ resolver = "2"
 members = [ 
     "secure-sign",
     "secure-sign-core",
-    "secure-sign-nitro",
     "secure-sign-rpc",
+    "secure-sign-nitro",
 ]
 
 [profile.release]
 lto           = "fat"
-opt-level     = 3
+opt-level     = 2
 codegen-units = 1

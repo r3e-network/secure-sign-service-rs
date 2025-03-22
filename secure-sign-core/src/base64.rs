@@ -17,7 +17,7 @@ impl<T: AsRef<[u8]>> ToBase64 for T {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Copy, Clone, thiserror::Error)]
+#[derive(Debug, Copy, Clone, thiserror::Error)]
 pub enum FromBase64Error {
     #[error("base64: invalid character '{0}'")]
     InvalidChar(char),

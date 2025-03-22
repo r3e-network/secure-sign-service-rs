@@ -1,25 +1,20 @@
 // Copyright @ 2025 - Present, R3E Network
 // All Rights Reserved
 
+mod mock;
+mod run;
+mod startup;
+mod tools;
+
 use clap::{command, Parser, Subcommand};
-use secure_sign_core::neo::sign::Signer;
-use secure_sign_rpc::servicepb::secure_sign_server::SecureSignServer;
-use secure_sign_rpc::unencrypted::*;
-use secure_sign_rpc::SignServiceFacade;
-use tonic::transport::Server;
+use tokio::signal;
 
 #[derive(Subcommand)]
 enum Commands {
-    Run(RunCmd),
-}
-
-#[derive(clap::Args)]
-pub(crate) struct RunCmd {
-    #[arg(long, help = "The wallet file path")]
-    pub wallet: String,
-
-    #[arg(long, help = "The listen address", default_value = "0.0.0.0:9991")]
-    pub listen: String,
+    Run(run::RunCmd),
+    Mock(mock::MockCmd),
+    Decrypt(tools::DecryptCmd),
+    Status(tools::StatusCmd),
 }
 
 #[derive(Parser)]
@@ -33,21 +28,21 @@ struct Cli {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let cli = Cli::parse();
-    match cli.commands {
-        Commands::Run(run) => {
-            // start grpc server
-            let addr = run.listen.parse()?;
-            let signer = Signer::new(vec![]);
-            let unencrypted_sign_service = UnencryptedSignService::new(signer);
-            let sign_service_facade = SignServiceFacade::new(unencrypted_sign_service);
+    env_logger::init();
 
-            println!("Listening on {}", addr);
-            Server::builder()
-                .add_service(SecureSignServer::new(sign_service_facade))
-                .serve(addr)
-                .await?;
-        }
-    }
+    let cli = Cli::parse();
+    let shutdown_tx = match cli.commands {
+        Commands::Run(run) => run.run()?,
+        Commands::Mock(mock) => mock.run()?,
+        Commands::Decrypt(decrypt) => return decrypt.run().await,
+        Commands::Status(status) => return status.run().await,
+    };
+
+    signal::ctrl_c().await?;
+    log::info!("Shutting down...");
+
+    shutdown_tx
+        .send(())
+        .expect("Failed to send shutdown signal");
     Ok(())
 }

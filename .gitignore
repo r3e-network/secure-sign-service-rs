@@ -1,5 +1,8 @@
 /target
+**/target
 **/*.log
+**/*.pem
 .vscode/
 .idea/
 **/.DS_Store
+**/venv/
