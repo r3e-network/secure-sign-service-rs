@@ -6,6 +6,8 @@ use core::fmt::{Display, Formatter};
 
 use serde::{de::Error, Deserialize, Deserializer, Serialize, Serializer};
 
+use crate::bin::{BinEncoder, BinWriter};
+
 pub const H160_SIZE: usize = 20;
 
 /// little endian
@@ -32,6 +34,13 @@ impl AsRef<[u8; H160_SIZE]> for H160 {
     }
 }
 
+impl AsRef<[u8]> for H160 {
+    #[inline]
+    fn as_ref(&self) -> &[u8] {
+        return &self.0;
+    }
+}
+
 impl Display for H160 {
     #[inline]
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
@@ -44,6 +53,20 @@ impl Display for H160 {
 
         f.write_str("0x")?;
         f.write_str(&h)
+    }
+}
+
+impl Default for H160 {
+    #[inline]
+    fn default() -> Self {
+        Self([0u8; H160_SIZE])
+    }
+}
+
+impl BinEncoder for H160 {
+    #[inline]
+    fn encode_bin(&self, w: &mut impl BinWriter) {
+        w.write(&self.0);
     }
 }
 
@@ -93,12 +116,5 @@ impl<'de> Deserialize<'de> for H160 {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let value = String::deserialize(deserializer)?;
         H160::try_from(value.as_str()).map_err(D::Error::custom)
-    }
-}
-
-impl Default for H160 {
-    #[inline]
-    fn default() -> Self {
-        Self([0u8; H160_SIZE])
     }
 }

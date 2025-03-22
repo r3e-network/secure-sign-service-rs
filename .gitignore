@@ -1,5 +1,10 @@
 /target
+/bin
+**/target
 **/*.log
+**/*.pem
 .vscode/
 .idea/
 **/.DS_Store
+**/venv/
+secure-sign-sgx-enclave/*.py

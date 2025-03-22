@@ -1,0 +1,47 @@
+/*
+ Copyright @ 2025 - Present, R3E Network
+ All Rights Reserved
+*/
+
+enclave {
+    trusted {
+        public int32_t secure_sign_sgx_startup();
+
+        public int32_t secure_sign_sgx_diffie_hellman(
+            [in, size=blob_ephemeral_public_key_len] const char* blob_ephemeral_public_key,
+            size_t blob_ephemeral_public_key_len,
+            [out, size=33] char* alice_ephemeral_public_key
+        );
+
+        public int32_t secure_sign_sgx_start_signer(
+           [in, size=encrypted_wallet_passphrase_len] const char* encrypted_wallet_passphrase,
+           size_t encrypted_wallet_passphrase_len,
+           [in, size=nonce_len] const char* nonce,
+           size_t nonce_len
+        );
+
+        public int32_t secure_sign_sgx_account_status(
+            [in, size=public_key_len] const char* public_key,
+            size_t public_key_len
+        );
+
+        public int32_t secure_sign_sgx_sign_block(
+            [in, size=public_key_len] const char* public_key,
+            size_t public_key_len,
+            [in, size=trimmed_block_len] const char* trimmed_block,
+            size_t trimmed_block_len,
+            uint32_t network,
+            [out, size=64] char* sign
+        );
+
+        public int32_t secure_sign_sgx_sign_extensible_payload(
+            [in, size=extensible_payload_len] const char* extensible_payload,
+            size_t extensible_payload_len,
+            [in, size=script_hashes_len] const char* script_hashes,
+            size_t script_hashes_len,
+            uint32_t network,
+            [out, size=multi_signs_len] char* multi_signs,
+            size_t multi_signs_len
+        );
+    };
+};

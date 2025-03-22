@@ -7,6 +7,6 @@ fn main() -> Result<()> {
     prost_build::Config::new()
         .out_dir("src/neo")
         // .type_attribute(".", "#[derive(serde::Serialize, serde::Deserialize)]")
-        .compile_protos(&["proto/neo_signpb.proto"], &["proto/"])?;
+        .compile_protos(&["proto/signpb.proto"], &["proto/"])?;
     Ok(())
 }

@@ -1,0 +1,30 @@
+{
+    "name": "xyz",
+    "version": "3.0",
+    "scrypt": {
+        "n": 64,
+        "r": 2,
+        "p": 2
+    },
+    "accounts": [
+        {
+            "address": "NUz6PKTAM7NbPJzkKJFNay3VckQtcDkgWo",
+            "label": null,
+            "isdefault": true,
+            "lock": false,
+            "key": "6PYWucwbu5pQV9j1wq9kyb571qxUhqDK6vcTsGQtoJXuErzhfptc72RdGF",
+            "contract": {
+                "script": "DCECb/A7lJJBzh2t1DUZ5pYOCoW0GmmgXDKBA6orzhWUyhZBVuezJw==",
+                "deployed": false,
+                "parameters": [{"name": "signature", "type": "Signature"}]
+            }
+        },
+        {
+            "address": "Ng7WntSTvyrhDM1kYNYoC4buZ54XRYW6F7",
+            "label": null,
+            "isdefault": false,
+            "lock": false,
+            "key": "6PYX2y7ipe8SmLWD32a3wAhXrG84qTP4mzuLu7tTUUgChQo5ioiBfaS47T"
+        }
+    ]
+}

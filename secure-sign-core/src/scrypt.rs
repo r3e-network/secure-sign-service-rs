@@ -1,14 +1,14 @@
 // Copyright @ 2025 - Present, R3E Network
 // All Rights Reserved
 
+use serde::{Deserialize, Serialize};
 use zeroize::Zeroizing;
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Deserialize, Serialize)]
 pub struct ScryptParams {
     pub n: u64,
     pub r: u32,
     pub p: u32,
-    pub len: u32,
 }
 
 impl core::fmt::Display for ScryptParams {
@@ -16,11 +16,10 @@ impl core::fmt::Display for ScryptParams {
     fn fmt(&self, formatter: &mut core::fmt::Formatter) -> core::fmt::Result {
         core::write!(
             formatter,
-            "ScryptParams{{n:{},r:{},p:{},len:{}}}",
+            "ScryptParams{{n:{},r:{},p:{}}}",
             self.n,
             self.r,
-            self.p,
-            self.len
+            self.p
         )
     }
 }
@@ -38,7 +37,7 @@ pub trait DeriveScryptKey {
     fn derive_scrypt_key<const N: usize>(
         &self,
         salt: &[u8],
-        params: ScryptParams,
+        scrypt: ScryptParams,
     ) -> Result<Zeroizing<[u8; N]>, ScryptDeriveError>;
 }
 
@@ -51,19 +50,19 @@ impl<T: AsRef<[u8]>> DeriveScryptKey for T {
     fn derive_scrypt_key<const N: usize>(
         &self,
         salt: &[u8],
-        params: ScryptParams,
+        scrypt: ScryptParams,
     ) -> Result<Zeroizing<[u8; N]>, ScryptDeriveError> {
-        if params.n.count_ones() != 1 {
+        if scrypt.n.count_ones() != 1 {
             return Err(ScryptDeriveError::InvalidParams);
         }
 
         let key = self.as_ref();
-        let params = scrypt::ScryptParams::new(params.n.ilog2() as u8, params.r, params.p)
-            .map_err(|_| ScryptDeriveError::InvalidParams)?;
+        let params = scrypt::ScryptParams::new(scrypt.n.ilog2() as u8, scrypt.r, scrypt.p)
+            .map_err(|_err| ScryptDeriveError::InvalidParams)?;
 
         let mut derived = Zeroizing::new([0u8; N]);
         let _ = scrypt::scrypt(key, salt, &params, derived.as_mut_slice())
-            .map_err(|_| ScryptDeriveError::InvalidDerivedLength)?;
+            .map_err(|_err| ScryptDeriveError::InvalidDerivedLength)?;
 
         Ok(derived)
     }

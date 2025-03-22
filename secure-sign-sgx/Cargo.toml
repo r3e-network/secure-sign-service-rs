@@ -1,0 +1,22 @@
+[package]
+name = "secure-sign-sgx"
+version = "0.1.0"
+edition = "2021"
+
+[workspace]
+
+[dependencies]
+secure-sign-core = { path = "../secure-sign-core", features = ["std"] }
+secure-sign-rpc  = { path = "../secure-sign-rpc" }
+
+clap  = { version = "4.5", features = ["derive"] }
+tokio = { version = "1", features = ["full"] }
+
+log        = { version = "0.4" }
+env_logger = { version = "0.11" }
+thiserror  = { version = "2" }
+
+prost     = { version = "0.13", features = ["prost-derive"] }
+tonic     = { version = "0.12" }
+
+sgx_types = { rev = "v1.1.6", git = "https://github.com/apache/teaclave-sgx-sdk.git" }

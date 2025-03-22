@@ -4,13 +4,30 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-prost = { version = "0.13" }
-tonic = { version = "0.12" }
-
 secure-sign-core = { path = "../secure-sign-core", features = ["std"] }
 
+hex   = { version = "0.4" }
+prost = { version = "0.13" }
+tonic = { version = "0.12" }
+tower = { version = "0.5" }
+
+tokio       = { version = "1", features = ["full"] }
+tokio-vsock = { version = "0.7", features = ["tonic012"] }
+hyper-util  = { version = "0.1", features = ["tokio"] }
+
+zeroize = { version = "1", features = ["zeroize_derive"] }
+p256    = { version = "0.13", default-features = false, features = ["arithmetic", "ecdsa", "ecdh"]}
+aes-gcm = { version = "0.10" }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full"] }
+
 [build-dependencies]
+secure-sign-core = { path = "../secure-sign-core", features = ["std"] }
+
 prost-build = { version = "0.13" }
 tonic-build = { version = "0.12" }
 
-secure-sign-core = { path = "../secure-sign-core", features = ["std"] }
+[features]
+default = []
+# vsock   = ["tokio-vsock", "hyper-util"]

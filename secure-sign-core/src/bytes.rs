@@ -16,26 +16,26 @@ impl<T: Copy + Default, const N: usize> ToArray<T, N> for [T] {
     }
 }
 
-pub trait ToRevArray<T: Copy, const N: usize> {
-    fn to_rev_array(&self) -> [T; N];
-}
-
-impl<T: Copy + Default, const N: usize> ToRevArray<T, N> for [T] {
-    /// slice to revered array(for endian transition). slice.len() must be constant
-    #[inline]
-    fn to_rev_array(&self) -> [T; N] {
-        let mut d = [Default::default(); N];
-        d.copy_from_slice(self);
-        d.reverse();
-        d
-    }
-}
-
-impl<T: Copy + Default, const N: usize> ToRevArray<T, N> for [T; N] {
-    #[inline]
-    fn to_rev_array(&self) -> [T; N] {
-        let mut b = self.clone();
-        b.reverse();
-        b
-    }
-}
+// pub trait ToRevArray<T: Copy, const N: usize> {
+//     fn to_rev_array(&self) -> [T; N];
+// }
+//
+// impl<T: Copy + Default, const N: usize> ToRevArray<T, N> for [T] {
+//     /// slice to revered array(for endian transition). slice.len() must be constant
+//     #[inline]
+//     fn to_rev_array(&self) -> [T; N] {
+//         let mut d = [Default::default(); N];
+//         d.copy_from_slice(self);
+//         d.reverse();
+//         d
+//     }
+// }
+//
+// impl<T: Copy + Default, const N: usize> ToRevArray<T, N> for [T; N] {
+//     #[inline]
+//     fn to_rev_array(&self) -> [T; N] {
+//         let mut b = self.clone();
+//         b.reverse();
+//         b
+//     }
+// }
