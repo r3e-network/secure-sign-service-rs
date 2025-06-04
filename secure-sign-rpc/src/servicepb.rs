@@ -3,7 +3,9 @@
 pub struct SignExtensiblePayloadRequest {
     /// the payload to be signed
     #[prost(message, optional, tag = "1")]
-    pub payload: ::core::option::Option<::secure_sign_core::neo::signpb::ExtensiblePayload>,
+    pub payload: ::core::option::Option<
+        ::secure_sign_core::neo::signpb::ExtensiblePayload,
+    >,
     /// script hashes, H160 list
     #[prost(bytes = "vec", repeated, tag = "2")]
     pub script_hashes: ::prost::alloc::vec::Vec<::prost::alloc::vec::Vec<u8>>,
@@ -42,10 +44,7 @@ pub struct GetAccountStatusRequest {
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct GetAccountStatusResponse {
-    #[prost(
-        enumeration = "::secure_sign_core::neo::signpb::AccountStatus",
-        tag = "1"
-    )]
+    #[prost(enumeration = "::secure_sign_core::neo::signpb::AccountStatus", tag = "1")]
     pub status: i32,
 }
 /// Generated client implementations.
@@ -55,10 +54,10 @@ pub mod secure_sign_client {
         dead_code,
         missing_docs,
         clippy::wildcard_imports,
-        clippy::let_unit_value
+        clippy::let_unit_value,
     )]
-    use tonic::codegen::http::Uri;
     use tonic::codegen::*;
+    use tonic::codegen::http::Uri;
     #[derive(Debug, Clone)]
     pub struct SecureSignClient<T> {
         inner: tonic::client::Grpc<T>,
@@ -102,8 +101,9 @@ pub mod secure_sign_client {
                     <T as tonic::client::GrpcService<tonic::body::BoxBody>>::ResponseBody,
                 >,
             >,
-            <T as tonic::codegen::Service<http::Request<tonic::body::BoxBody>>>::Error:
-                Into<StdError> + std::marker::Send + std::marker::Sync,
+            <T as tonic::codegen::Service<
+                http::Request<tonic::body::BoxBody>,
+            >>::Error: Into<StdError> + std::marker::Send + std::marker::Sync,
         {
             SecureSignClient::new(InterceptedService::new(inner, interceptor))
         }
@@ -141,30 +141,48 @@ pub mod secure_sign_client {
         pub async fn sign_extensible_payload(
             &mut self,
             request: impl tonic::IntoRequest<super::SignExtensiblePayloadRequest>,
-        ) -> std::result::Result<tonic::Response<super::SignExtensiblePayloadResponse>, tonic::Status>
-        {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::unknown(format!("Service was not ready: {}", e.into()))
-            })?;
+        ) -> std::result::Result<
+            tonic::Response<super::SignExtensiblePayloadResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
             let codec = tonic::codec::ProstCodec::default();
-            let path =
-                http::uri::PathAndQuery::from_static("/servicepb.SecureSign/SignExtensiblePayload");
+            let path = http::uri::PathAndQuery::from_static(
+                "/servicepb.SecureSign/SignExtensiblePayload",
+            );
             let mut req = request.into_request();
-            req.extensions_mut().insert(GrpcMethod::new(
-                "servicepb.SecureSign",
-                "SignExtensiblePayload",
-            ));
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new("servicepb.SecureSign", "SignExtensiblePayload"),
+                );
             self.inner.unary(req, path, codec).await
         }
         pub async fn sign_block(
             &mut self,
             request: impl tonic::IntoRequest<super::SignBlockRequest>,
-        ) -> std::result::Result<tonic::Response<super::SignBlockResponse>, tonic::Status> {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::unknown(format!("Service was not ready: {}", e.into()))
-            })?;
+        ) -> std::result::Result<
+            tonic::Response<super::SignBlockResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
             let codec = tonic::codec::ProstCodec::default();
-            let path = http::uri::PathAndQuery::from_static("/servicepb.SecureSign/SignBlock");
+            let path = http::uri::PathAndQuery::from_static(
+                "/servicepb.SecureSign/SignBlock",
+            );
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(GrpcMethod::new("servicepb.SecureSign", "SignBlock"));
@@ -173,14 +191,22 @@ pub mod secure_sign_client {
         pub async fn get_account_status(
             &mut self,
             request: impl tonic::IntoRequest<super::GetAccountStatusRequest>,
-        ) -> std::result::Result<tonic::Response<super::GetAccountStatusResponse>, tonic::Status>
-        {
-            self.inner.ready().await.map_err(|e| {
-                tonic::Status::unknown(format!("Service was not ready: {}", e.into()))
-            })?;
+        ) -> std::result::Result<
+            tonic::Response<super::GetAccountStatusResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
             let codec = tonic::codec::ProstCodec::default();
-            let path =
-                http::uri::PathAndQuery::from_static("/servicepb.SecureSign/GetAccountStatus");
+            let path = http::uri::PathAndQuery::from_static(
+                "/servicepb.SecureSign/GetAccountStatus",
+            );
             let mut req = request.into_request();
             req.extensions_mut()
                 .insert(GrpcMethod::new("servicepb.SecureSign", "GetAccountStatus"));
@@ -195,7 +221,7 @@ pub mod secure_sign_server {
         dead_code,
         missing_docs,
         clippy::wildcard_imports,
-        clippy::let_unit_value
+        clippy::let_unit_value,
     )]
     use tonic::codegen::*;
     /// Generated trait containing gRPC methods that should be implemented for use with SecureSignServer.
@@ -204,15 +230,24 @@ pub mod secure_sign_server {
         async fn sign_extensible_payload(
             &self,
             request: tonic::Request<super::SignExtensiblePayloadRequest>,
-        ) -> std::result::Result<tonic::Response<super::SignExtensiblePayloadResponse>, tonic::Status>;
+        ) -> std::result::Result<
+            tonic::Response<super::SignExtensiblePayloadResponse>,
+            tonic::Status,
+        >;
         async fn sign_block(
             &self,
             request: tonic::Request<super::SignBlockRequest>,
-        ) -> std::result::Result<tonic::Response<super::SignBlockResponse>, tonic::Status>;
+        ) -> std::result::Result<
+            tonic::Response<super::SignBlockResponse>,
+            tonic::Status,
+        >;
         async fn get_account_status(
             &self,
             request: tonic::Request<super::GetAccountStatusRequest>,
-        ) -> std::result::Result<tonic::Response<super::GetAccountStatusResponse>, tonic::Status>;
+        ) -> std::result::Result<
+            tonic::Response<super::GetAccountStatusResponse>,
+            tonic::Status,
+        >;
     }
     #[derive(Debug)]
     pub struct SecureSignServer<T> {
@@ -235,7 +270,10 @@ pub mod secure_sign_server {
                 max_encoding_message_size: None,
             }
         }
-        pub fn with_interceptor<F>(inner: T, interceptor: F) -> InterceptedService<Self, F>
+        pub fn with_interceptor<F>(
+            inner: T,
+            interceptor: F,
+        ) -> InterceptedService<Self, F>
         where
             F: tonic::service::Interceptor,
         {
@@ -290,19 +328,23 @@ pub mod secure_sign_server {
                 "/servicepb.SecureSign/SignExtensiblePayload" => {
                     #[allow(non_camel_case_types)]
                     struct SignExtensiblePayloadSvc<T: SecureSign>(pub Arc<T>);
-                    impl<T: SecureSign>
-                        tonic::server::UnaryService<super::SignExtensiblePayloadRequest>
-                        for SignExtensiblePayloadSvc<T>
-                    {
+                    impl<
+                        T: SecureSign,
+                    > tonic::server::UnaryService<super::SignExtensiblePayloadRequest>
+                    for SignExtensiblePayloadSvc<T> {
                         type Response = super::SignExtensiblePayloadResponse;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::SignExtensiblePayloadRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
                             let fut = async move {
-                                <T as SecureSign>::sign_extensible_payload(&inner, request).await
+                                <T as SecureSign>::sign_extensible_payload(&inner, request)
+                                    .await
                             };
                             Box::pin(fut)
                         }
@@ -332,16 +374,23 @@ pub mod secure_sign_server {
                 "/servicepb.SecureSign/SignBlock" => {
                     #[allow(non_camel_case_types)]
                     struct SignBlockSvc<T: SecureSign>(pub Arc<T>);
-                    impl<T: SecureSign> tonic::server::UnaryService<super::SignBlockRequest> for SignBlockSvc<T> {
+                    impl<
+                        T: SecureSign,
+                    > tonic::server::UnaryService<super::SignBlockRequest>
+                    for SignBlockSvc<T> {
                         type Response = super::SignBlockResponse;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::SignBlockRequest>,
                         ) -> Self::Future {
                             let inner = Arc::clone(&self.0);
-                            let fut =
-                                async move { <T as SecureSign>::sign_block(&inner, request).await };
+                            let fut = async move {
+                                <T as SecureSign>::sign_block(&inner, request).await
+                            };
                             Box::pin(fut)
                         }
                     }
@@ -370,11 +419,15 @@ pub mod secure_sign_server {
                 "/servicepb.SecureSign/GetAccountStatus" => {
                     #[allow(non_camel_case_types)]
                     struct GetAccountStatusSvc<T: SecureSign>(pub Arc<T>);
-                    impl<T: SecureSign> tonic::server::UnaryService<super::GetAccountStatusRequest>
-                        for GetAccountStatusSvc<T>
-                    {
+                    impl<
+                        T: SecureSign,
+                    > tonic::server::UnaryService<super::GetAccountStatusRequest>
+                    for GetAccountStatusSvc<T> {
                         type Response = super::GetAccountStatusResponse;
-                        type Future = BoxFuture<tonic::Response<Self::Response>, tonic::Status>;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
                         fn call(
                             &mut self,
                             request: tonic::Request<super::GetAccountStatusRequest>,
@@ -408,19 +461,23 @@ pub mod secure_sign_server {
                     };
                     Box::pin(fut)
                 }
-                _ => Box::pin(async move {
-                    let mut response = http::Response::new(empty_body());
-                    let headers = response.headers_mut();
-                    headers.insert(
-                        tonic::Status::GRPC_STATUS,
-                        (tonic::Code::Unimplemented as i32).into(),
-                    );
-                    headers.insert(
-                        http::header::CONTENT_TYPE,
-                        tonic::metadata::GRPC_CONTENT_TYPE,
-                    );
-                    Ok(response)
-                }),
+                _ => {
+                    Box::pin(async move {
+                        let mut response = http::Response::new(empty_body());
+                        let headers = response.headers_mut();
+                        headers
+                            .insert(
+                                tonic::Status::GRPC_STATUS,
+                                (tonic::Code::Unimplemented as i32).into(),
+                            );
+                        headers
+                            .insert(
+                                http::header::CONTENT_TYPE,
+                                tonic::metadata::GRPC_CONTENT_TYPE,
+                            );
+                        Ok(response)
+                    })
+                }
             }
         }
     }

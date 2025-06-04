@@ -1,11 +1,14 @@
-# Rust
+# Rust build artifacts
 /target
 **/target
 Cargo.lock.bak
 
-# Logs
+# Logs and temporary files
 **/*.log
 *.log
+*.tmp
+*.temp
+.cache/
 
 # Security-sensitive files
 **/*.pem
@@ -16,27 +19,25 @@ Cargo.lock.bak
 **/wallet.json
 !secure-sign/config/nep6_wallet.json
 
-# IDE
-.vscode/
+# IDE and editor files
+.vscode/settings.json
 .idea/
 *.swp
 *.swo
+*.bak
+*.orig
 *~
 
-# OS
+# OS-specific files
 **/.DS_Store
 .DS_Store
 Thumbs.db
+ehthumbs.db
 
-# Environment
+# Environment and configuration
 .env
 .env.local
 .env.*.local
-**/venv/
-**/__pycache__/
-
-# Docker
-.dockerignore
 
 # Build artifacts
 *.so
@@ -44,39 +45,18 @@ Thumbs.db
 *.dll
 enclave.signed.so
 
-# Temporary files
-*.tmp
-*.temp
-.cache/
-
 # Security and monitoring artifacts
 sbom.json
-SBOM.md
 audit-report.json
 *.sarif
 
-# Metrics and monitoring
-prometheus_data/
-grafana_data/
-
-# Environment and configuration
-.env
-.env.local
-.env.*.local
-
-# Development artifacts
+# Development environment
+**/venv/
+**/__pycache__/
 logs/
 backup/
 coverage/
 
-# IDE and editor files
-*.swp
-*.swo
-*.bak
-*.orig
-.vscode/settings.json
-
-# OS specific
-.DS_Store
-Thumbs.db
-ehthumbs.db
+# Docker and monitoring data
+prometheus_data/
+grafana_data/
