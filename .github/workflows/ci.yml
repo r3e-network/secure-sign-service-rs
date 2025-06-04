@@ -189,6 +189,7 @@ jobs:
           context: .
           file: ./Dockerfile
           push: false
+          load: true
           tags: secure-sign:test
           cache-from: type=gha
           cache-to: type=gha,mode=max

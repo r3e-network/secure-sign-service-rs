@@ -7,7 +7,7 @@ use std::io::Result;
 fn main() -> Result<()> {
     // Ensure output directory exists
     fs::create_dir_all("src/")?;
-    
+
     tonic_build::configure()
         .out_dir("src/")
         // .type_attribute(".", "#[derive(serde::Serialize, serde::Deserialize)]")

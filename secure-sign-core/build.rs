@@ -7,7 +7,7 @@ use std::io::Result;
 fn main() -> Result<()> {
     // Create output directory if it doesn't exist
     fs::create_dir_all("src/neo")?;
-    
+
     prost_build::Config::new()
         .out_dir("src/neo")
         // .type_attribute(".", "#[derive(serde::Serialize, serde::Deserialize)]")
