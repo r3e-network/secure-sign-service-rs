@@ -229,7 +229,7 @@ impl tower::Service<Uri> for VsockConnector {
 pub async fn vsock_channel(cid: u32, port: u16) -> Result<Channel, Box<dyn std::error::Error>> {
     // Create a placeholder URI (not actually used for VSOCK addressing)
     // The format includes port and CID for debugging purposes only
-    let endpoint = Endpoint::try_from(format!("http://127.0.0.1:{}/{}", port, cid))?; // Just a placeholder
+    let endpoint = Endpoint::try_from(format!("http://127.0.0.1:{port}/{cid}"))?; // Just a placeholder
 
     // Create the gRPC channel with custom VSOCK connector
     let channel = endpoint

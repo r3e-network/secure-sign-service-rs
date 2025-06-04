@@ -90,13 +90,13 @@ impl IntoRpcStatus for SignError {
 /// # Validation
 /// Each script hash must be exactly 20 bytes. Invalid lengths result
 /// in an INVALID_ARGUMENT gRPC status.
-pub fn to_h160_vec(source: Vec<Vec<u8>>) -> Result<Vec<H160>, tonic::Status> {
+pub fn to_h160_vec(source: Vec<Vec<u8>>) -> Result<Vec<H160>, Box<tonic::Status>> {
     let mut h160s = Vec::with_capacity(source.len());
     for hash in source {
         if hash.len() != H160_SIZE {
-            return Err(tonic::Status::invalid_argument(
+            return Err(Box::new(tonic::Status::invalid_argument(
                 "ScriptHash must be 20 bytes",
-            ));
+            )));
         }
         h160s.push(H160::from_le_bytes(hash.as_slice().to_array()));
     }
@@ -153,7 +153,7 @@ impl SecureSign for DefaultSignService {
         let req = req.into_inner();
 
         // Validate and convert script hashes from bytes to H160
-        let script_hashes = to_h160_vec(req.script_hashes)?;
+        let script_hashes = to_h160_vec(req.script_hashes).map_err(|e| *e)?;
 
         // Validate payload presence
         let Some(payload) = req.payload.as_ref() else {

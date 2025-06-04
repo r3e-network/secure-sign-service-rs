@@ -69,7 +69,7 @@ mod tests {
     fn test_nsm_error_formatting() {
         // Test InitError formatting
         let init_error = NsmError::InitError(-1);
-        let error_msg = format!("{}", init_error);
+        let error_msg = format!("{init_error}");
         assert!(
             error_msg.contains("initialize nsm error"),
             "InitError should contain descriptive text"
@@ -81,7 +81,7 @@ mod tests {
 
         // Test RequestError formatting
         let request_error = NsmError::RequestError(api::ErrorCode::InvalidOperation);
-        let error_msg = format!("{}", request_error);
+        let error_msg = format!("{request_error}");
         assert!(
             error_msg.contains("request error"),
             "RequestError should contain descriptive text"
@@ -93,7 +93,7 @@ mod tests {
 
         // Test Unexpected error formatting
         let unexpected_error = NsmError::Unexpected;
-        let error_msg = format!("{}", unexpected_error);
+        let error_msg = format!("{unexpected_error}");
         assert!(
             error_msg.contains("unexpected error"),
             "Unexpected should contain descriptive text"
@@ -106,7 +106,7 @@ mod tests {
     #[test]
     fn test_nsm_error_debug() {
         let init_error = NsmError::InitError(-1);
-        let debug_output = format!("{:?}", init_error);
+        let debug_output = format!("{init_error:?}");
         assert!(
             debug_output.contains("InitError"),
             "Debug should show variant name"
@@ -114,7 +114,7 @@ mod tests {
         assert!(debug_output.contains("-1"), "Debug should show the value");
 
         let request_error = NsmError::RequestError(api::ErrorCode::InvalidOperation);
-        let debug_output = format!("{:?}", request_error);
+        let debug_output = format!("{request_error:?}");
         assert!(
             debug_output.contains("RequestError"),
             "Debug should show variant name"
@@ -125,7 +125,7 @@ mod tests {
         );
 
         let unexpected_error = NsmError::Unexpected;
-        let debug_output = format!("{:?}", unexpected_error);
+        let debug_output = format!("{unexpected_error:?}");
         assert!(
             debug_output.contains("Unexpected"),
             "Debug should show variant name"
@@ -232,7 +232,7 @@ mod tests {
 
         // Verify it implements expected traits
         let _clone = wrapped.clone();
-        let _debug = format!("{:?}", wrapped);
+        let _debug = format!("{wrapped:?}");
 
         // Test that it can be converted back to Vec when needed
         let inner_vec: Vec<u8> = (*wrapped).clone();
@@ -323,7 +323,7 @@ mod tests {
     fn test_error_propagation() {
         // Test that errors can be converted between types appropriately
         let init_error = NsmError::InitError(-1);
-        let _error_string = format!("{}", init_error);
+        let _error_string = format!("{init_error}");
 
         // Test chaining with ? operator (would work in actual implementation)
         fn simulate_error_chain() -> Result<(), NsmError> {
@@ -357,7 +357,7 @@ mod tests {
             if fd < 0 {
                 let error = NsmError::InitError(fd);
                 assert!(
-                    format!("{}", error).contains(&fd.to_string()),
+                    format!("{error}").contains(&fd.to_string()),
                     "Error should include the FD value"
                 );
             }
@@ -394,6 +394,6 @@ mod tests {
 
         // For now, just test the error type compatibility
         let error = NsmError::Unexpected;
-        let _debug_output = format!("{:?}", error);
+        let _debug_output = format!("{error:?}");
     }
 }

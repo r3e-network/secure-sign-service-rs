@@ -276,8 +276,7 @@ mod tests {
         for (i, result) in results.iter().enumerate() {
             assert_eq!(
                 *result, results[0],
-                "HMAC result {} should match first result",
-                i
+                "HMAC result {i} should match first result",
             );
         }
     }
@@ -289,7 +288,7 @@ mod tests {
     fn test_hmac_various_key_lengths() {
         let data = b"test data for various key lengths";
 
-        let test_cases = vec![
+        let test_cases = [
             vec![0x01; 1],   // 1 byte key
             vec![0x02; 16],  // 16 byte key (common)
             vec![0x03; 32],  // 32 byte key (common for derived keys)
@@ -305,16 +304,14 @@ mod tests {
 
             assert_ne!(
                 result, [0u8; 32],
-                "Key length test case {} should not be all zeros",
-                i
+                "Key length test case {i} should not be all zeros",
             );
 
             // Test determinism for each key length
             let result2 = key.hmac_sha256(data);
             assert_eq!(
                 result, result2,
-                "Key length test case {} should be deterministic",
-                i
+                "Key length test case {i} should be deterministic",
             );
         }
     }
@@ -369,13 +366,11 @@ mod tests {
         // Good avalanche should change roughly half the bits
         assert!(
             key_diff_count > 64,
-            "Key change should affect many bits (got {})",
-            key_diff_count
+            "Key change should affect many bits (got {key_diff_count})",
         );
         assert!(
             data_diff_count > 64,
-            "Data change should affect many bits (got {})",
-            data_diff_count
+            "Data change should affect many bits (got {data_diff_count})",
         );
     }
 

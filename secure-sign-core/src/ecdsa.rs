@@ -283,7 +283,7 @@ mod tests {
         let public_key = keypair.public_key();
 
         // Test different message lengths
-        let test_cases = vec![
+        let test_cases = [
             b"".to_vec(),      // Empty message
             b"a".to_vec(),     // Single byte
             b"short".to_vec(), // Short message
@@ -295,11 +295,11 @@ mod tests {
         for (i, message) in test_cases.iter().enumerate() {
             let signature = private_key
                 .sign(message)
-                .unwrap_or_else(|_| panic!("Signing test case {} should succeed", i));
+                .unwrap_or_else(|_| panic!("Signing test case {i} should succeed"));
 
             public_key
                 .verify(message, &signature)
-                .unwrap_or_else(|_| panic!("Verification test case {} should succeed", i));
+                .unwrap_or_else(|_| panic!("Verification test case {i} should succeed"));
         }
     }
 
@@ -500,7 +500,7 @@ mod tests {
         let message = b"test message";
 
         // Test various invalid signature formats
-        let invalid_signatures = vec![
+        let invalid_signatures = [
             [0u8; 64], // All zeros
             [0xFFu8; 64], // All max values
                        // Note: p256 crate handles most invalid signature detection internally
@@ -509,8 +509,7 @@ mod tests {
         for (i, invalid_sig) in invalid_signatures.iter().enumerate() {
             assert!(
                 public_key.verify(message, invalid_sig).is_err(),
-                "Invalid signature {} should be rejected",
-                i
+                "Invalid signature {i} should be rejected",
             );
         }
     }

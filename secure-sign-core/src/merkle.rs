@@ -322,7 +322,7 @@ mod tests {
 
         for size in test_cases {
             let hashes: Vec<H256> = (0..size)
-                .map(|i| test_hash(&format!("element_{}", i)))
+                .map(|i| test_hash(&format!("element_{i}")))
                 .collect();
 
             let root = hashes.merkle_sha256();
@@ -332,21 +332,19 @@ mod tests {
                 assert_eq!(
                     root,
                     H256::default(),
-                    "Size {} should return zero hash",
-                    size
+                    "Size {size} should return zero hash",
                 );
             } else {
                 assert_ne!(
                     root,
                     H256::default(),
-                    "Size {} should produce non-zero root",
-                    size
+                    "Size {size} should produce non-zero root",
                 );
             }
 
             // Should be deterministic
             let root2 = hashes.merkle_sha256();
-            assert_eq!(root, root2, "Size {} should be deterministic", size);
+            assert_eq!(root, root2, "Size {size} should be deterministic");
         }
     }
 
@@ -376,8 +374,7 @@ mod tests {
             for j in i + 1..roots.len() {
                 assert_ne!(
                     roots[i], roots[j],
-                    "Different inputs should produce different roots (case {} vs {})",
-                    i, j
+                    "Different inputs should produce different roots (case {i} vs {j})",
                 );
             }
         }
@@ -429,8 +426,7 @@ mod tests {
         // Good avalanche should change roughly half the bits
         assert!(
             differing_bits > 64,
-            "Avalanche effect should affect many bits (got {})",
-            differing_bits
+            "Avalanche effect should affect many bits (got {differing_bits})",
         );
     }
 
@@ -555,7 +551,7 @@ mod tests {
         // Simulate a block with many transactions
         let large_hash_count = 1000;
         let hashes: Vec<H256> = (0..large_hash_count)
-            .map(|i| test_hash(&format!("transaction_{}", i)))
+            .map(|i| test_hash(&format!("transaction_{i}")))
             .collect();
 
         let start = Instant::now();
@@ -594,7 +590,7 @@ mod tests {
 
         for size in sizes {
             let hashes: Vec<H256> = (0..size)
-                .map(|i| test_hash(&format!("hash_{}", i)))
+                .map(|i| test_hash(&format!("hash_{i}")))
                 .collect();
 
             let root = hashes.merkle_sha256();
@@ -603,8 +599,7 @@ mod tests {
             assert_ne!(
                 root,
                 H256::default(),
-                "Size {} should produce valid root",
-                size
+                "Size {size} should produce valid root",
             );
         }
     }

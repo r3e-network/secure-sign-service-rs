@@ -199,7 +199,7 @@ impl<Start: StartSigner, Random: CryptRandom + Send + Sync + 'static> StartupSer
 
         // Generate server-side ephemeral keypair
         let alice_keypair = Keypair::gen(&mut state.crypt_random).map_err(|err| {
-            tonic::Status::internal(format!("Get ephemeral keypair error: {}", err))
+            tonic::Status::internal(format!("Get ephemeral keypair error: {err}"))
         })?;
 
         // Convert to p256 format for ECDH computation
@@ -280,13 +280,13 @@ impl<Start: StartSigner, Random: CryptRandom + Send + Sync + 'static> StartupSer
         // Set up AES-256-GCM cipher with derived key
         let key: Key<Aes256Gcm> = (*shared_secret).into();
         let cipher = Aes256Gcm::new(&key);
-        let nonce = Nonce::from_slice(&req.nonce.as_ref());
+        let nonce = Nonce::from_slice(req.nonce.as_ref());
 
         // Decrypt the wallet passphrase
         // AES-GCM automatically validates authenticity and integrity
         let wallet_passphrase = cipher
-            .decrypt(&nonce, req.encrypted_wallet_passphrase.as_slice())
-            .map(|x| Zeroizing::new(x))
+            .decrypt(nonce, req.encrypted_wallet_passphrase.as_slice())
+            .map(Zeroizing::new)
             .map_err(|_| tonic::Status::invalid_argument("Invalid encrypted data or nonce"))?;
 
         // Decrypt the NEP-6 wallet using the recovered passphrase
@@ -295,13 +295,13 @@ impl<Start: StartSigner, Random: CryptRandom + Send + Sync + 'static> StartupSer
             .wallet
             .decrypt_accounts(wallet_passphrase.as_slice())
             .map_err(|err| {
-                tonic::Status::invalid_argument(format!("Invalid wallet or passphrase: {}", err))
+                tonic::Status::invalid_argument(format!("Invalid wallet or passphrase: {err}"))
             })?;
 
         // Transition to signing phase with decrypted accounts
         let _ = state
             .start(accounts)
-            .map_err(|err| tonic::Status::internal(format!("Start signer error: {}", err)))?;
+            .map_err(|err| tonic::Status::internal(format!("Start signer error: {err}")))?;
 
         Ok(tonic::Response::new(StartSignerResponse {}))
     }
@@ -427,7 +427,7 @@ mod tests {
 
         // Test with invalid public key (wrong length)
         let req = DiffieHellmanRequest {
-            blob_ephemeral_public_key: vec![0x02; 32].into(), // Wrong length
+            blob_ephemeral_public_key: vec![0x02; 32], // Wrong length
         };
         let result = startup_service
             .diffie_hellman(tonic::Request::new(req))
@@ -437,7 +437,7 @@ mod tests {
 
         // Test with completely invalid data
         let req = DiffieHellmanRequest {
-            blob_ephemeral_public_key: vec![0xff; 33].into(), // Invalid curve point
+            blob_ephemeral_public_key: vec![0xff; 33], // Invalid curve point
         };
         let result = startup_service
             .diffie_hellman(tonic::Request::new(req))
@@ -459,7 +459,7 @@ mod tests {
 
         // First key exchange should succeed
         let req = DiffieHellmanRequest {
-            blob_ephemeral_public_key: blob_public_key.clone().into(),
+            blob_ephemeral_public_key: blob_public_key.into(),
         };
         let result = startup_service
             .diffie_hellman(tonic::Request::new(req))
@@ -559,8 +559,8 @@ mod tests {
 
         // Step 4: Start signer
         let start_req = StartSignerRequest {
-            encrypted_wallet_passphrase: ciphertext.into(),
-            nonce: nonce.to_vec().into(),
+            encrypted_wallet_passphrase: ciphertext,
+            nonce: nonce.to_vec(),
         };
 
         let result = startup_service
@@ -582,8 +582,8 @@ mod tests {
 
         // Try to start signer without key exchange
         let req = StartSignerRequest {
-            encrypted_wallet_passphrase: vec![0x42; 32].into(),
-            nonce: vec![0x00; 12].into(),
+            encrypted_wallet_passphrase: vec![0x42; 32],
+            nonce: vec![0x00; 12],
         };
 
         let result = startup_service.start_signer(tonic::Request::new(req)).await;
@@ -613,8 +613,8 @@ mod tests {
 
         // Test with wrong nonce length
         let req = StartSignerRequest {
-            encrypted_wallet_passphrase: vec![0x42; 32].into(),
-            nonce: vec![0x00; 10].into(), // Wrong length (should be 12)
+            encrypted_wallet_passphrase: vec![0x42; 32],
+            nonce: vec![0x00; 10], // Wrong length (should be 12)
         };
 
         let result = startup_service.start_signer(tonic::Request::new(req)).await;
@@ -644,8 +644,8 @@ mod tests {
 
         // Send corrupted encrypted data
         let req = StartSignerRequest {
-            encrypted_wallet_passphrase: vec![0x42; 32].into(), // Random data
-            nonce: vec![0x00; 12].into(),
+            encrypted_wallet_passphrase: vec![0x42; 32], // Random data
+            nonce: vec![0x00; 12],
         };
 
         let result = startup_service.start_signer(tonic::Request::new(req)).await;
@@ -709,8 +709,8 @@ mod tests {
 
         // Try to start signer (should fail due to FailingStartSigner)
         let start_req = StartSignerRequest {
-            encrypted_wallet_passphrase: ciphertext.into(),
-            nonce: nonce.to_vec().into(),
+            encrypted_wallet_passphrase: ciphertext,
+            nonce: nonce.to_vec(),
         };
 
         let result = startup_service
@@ -775,8 +775,8 @@ mod tests {
 
         // First start_signer call should succeed
         let start_req = StartSignerRequest {
-            encrypted_wallet_passphrase: ciphertext.clone().into(),
-            nonce: nonce.to_vec().into(),
+            encrypted_wallet_passphrase: ciphertext.clone(),
+            nonce: nonce.to_vec(),
         };
 
         let result = startup_service
@@ -786,8 +786,8 @@ mod tests {
 
         // Second start_signer call should fail
         let start_req = StartSignerRequest {
-            encrypted_wallet_passphrase: ciphertext.into(),
-            nonce: nonce.to_vec().into(),
+            encrypted_wallet_passphrase: ciphertext,
+            nonce: nonce.to_vec(),
         };
 
         let result = startup_service

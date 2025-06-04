@@ -273,7 +273,7 @@ mod tests {
         let salt = b"test salt";
 
         // Test invalid N (not power of 2)
-        let invalid_params = vec![
+        let invalid_params = [
             ScryptParams { n: 0, r: 1, p: 1 },  // N = 0
             ScryptParams { n: 3, r: 1, p: 1 },  // N = 3 (not power of 2)
             ScryptParams { n: 5, r: 1, p: 1 },  // N = 5 (not power of 2)
@@ -285,15 +285,13 @@ mod tests {
             let result: Result<Zeroizing<[u8; 32]>, _> = password.derive_scrypt_key(salt, *params);
             assert!(
                 result.is_err(),
-                "Invalid parameters {} should be rejected",
-                i
+                "Invalid parameters {i} should be rejected",
             );
 
             if let Err(e) = result {
                 assert!(
                     matches!(e, ScryptDeriveError::InvalidParams),
-                    "Should return InvalidParams error for case {}",
-                    i
+                    "Should return InvalidParams error for case {i}",
                 );
             }
         }
@@ -314,10 +312,10 @@ mod tests {
             let params = ScryptParams { n, r: 1, p: 1 };
             let result: Result<Zeroizing<[u8; 32]>, _> = password.derive_scrypt_key(salt, params);
 
-            assert!(result.is_ok(), "Valid N={} should succeed", n);
+            assert!(result.is_ok(), "Valid N={n} should succeed");
 
             if let Ok(key) = result {
-                assert_ne!(*key, [0u8; 32], "N={} should produce non-zero key", n);
+                assert_ne!(*key, [0u8; 32], "N={n} should produce non-zero key");
             }
         }
     }
@@ -515,13 +513,12 @@ mod tests {
             let params = ScryptParams { n: 16, r, p };
             let result: Result<Zeroizing<[u8; 32]>, _> = password.derive_scrypt_key(salt, params);
 
-            assert!(result.is_ok(), "Parameters r={}, p={} should work", r, p);
+            assert!(result.is_ok(), "Parameters r={r}, p={p} should work");
 
             if let Ok(key) = result {
                 assert_ne!(
                     *key, [0u8; 32],
-                    "r={}, p={} should produce non-zero key",
-                    r, p
+                    "r={r}, p={p} should produce non-zero key",
                 );
             }
         }
@@ -546,7 +543,7 @@ mod tests {
             let result: Result<Zeroizing<[u8; 32]>, _> = password.derive_scrypt_key(salt, params);
             let duration = start.elapsed();
 
-            assert!(result.is_ok(), "N={} should succeed", n);
+            assert!(result.is_ok(), "N={n} should succeed");
 
             // Generally, higher N should take longer (though this can be flaky)
             if previous_duration.as_nanos() > 0 {
@@ -621,7 +618,7 @@ mod tests {
             r: 8,
             p: 8,
         };
-        let display_string = format!("{}", params);
+        let display_string = format!("{params}");
 
         assert!(
             display_string.contains("16384"),
@@ -702,7 +699,7 @@ mod tests {
             let result: Result<Zeroizing<[u8; 32]>, _> = password.derive_scrypt_key(salt, params);
             let duration = start.elapsed();
 
-            assert!(result.is_ok(), "{} parameters should succeed", name);
+            assert!(result.is_ok(), "{name} parameters should succeed");
 
             // Performance bounds (adjust based on expected hardware)
             let max_time_ms = match name {

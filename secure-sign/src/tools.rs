@@ -96,7 +96,7 @@ impl DecryptCmd {
     /// * `Err` - Input reading failure or user cancellation
     fn read_passphrase(&self) -> Result<Zeroizing<String>, Box<dyn std::error::Error>> {
         let passphrase = rpassword::prompt_password("The password of the wallet: ")
-            .map_err(|err| format!("Failed to read passphrase: {}", err))?;
+            .map_err(|err| format!("Failed to read passphrase: {err}"))?;
         Ok(Zeroizing::new(passphrase))
     }
 
@@ -156,7 +156,7 @@ impl DecryptCmd {
 
         // Generate client-side ephemeral keypair for perfect forward secrecy
         let blob_keypair = Keypair::gen(&mut EnvCryptRandom)
-            .map_err(|err| format!("Failed to get blob keypair: {}", err))?;
+            .map_err(|err| format!("Failed to get blob keypair: {err}"))?;
 
         // Send client's public key to service and receive service's public key
         let res = client
@@ -202,14 +202,14 @@ impl DecryptCmd {
             let passphrase = self.read_passphrase()?;
             cipher
                 .encrypt(&nonce, passphrase.as_bytes())
-                .map_err(|err| format!("Failed to encrypt passphrase: {}", err))?
+                .map_err(|err| format!("Failed to encrypt passphrase: {err}"))?
             // passphrase is automatically zeroized when dropped here
         };
 
         // Send encrypted passphrase to service for wallet decryption
         client
             .start_signer(StartSignerRequest {
-                encrypted_wallet_passphrase: ciphertext.into(),
+                encrypted_wallet_passphrase: ciphertext,
                 nonce: nonce.as_slice().into(),
             })
             .await
@@ -289,7 +289,7 @@ impl StatusCmd {
     pub async fn run(&self) -> Result<(), Box<dyn std::error::Error>> {
         // Decode the hex-encoded public key
         let public_key = hex::decode(&self.public_key)
-            .map_err(|err| format!("Failed to decode public key: {}", err))?;
+            .map_err(|err| format!("Failed to decode public key: {err}"))?;
 
         // Establish connection to the signing service
         let channel = if self.cid > 0 {
@@ -304,7 +304,7 @@ impl StatusCmd {
         let mut client = SecureSignClient::new(channel);
         let res = client
             .get_account_status(GetAccountStatusRequest {
-                public_key: public_key.into(),
+                public_key,
             })
             .await
             .map_err(|s| format!("Failed to get account status: {}:{}", s.code(), s.message()))?;
@@ -329,7 +329,7 @@ impl StatusCmd {
 /// * `Ok(Channel)` - Established gRPC channel
 /// * `Err` - Connection failure or invalid endpoint
 async fn tcp_channel(port: u16) -> Result<Channel, Box<dyn std::error::Error>> {
-    let endpoint = format!("http://localhost:{}", port);
+    let endpoint = format!("http://localhost:{port}");
     let conn = Endpoint::new(endpoint)?.connect().await?;
     Ok(conn)
 }
@@ -358,7 +358,7 @@ fn account_status(status: i32) -> String {
         2 => "Single".into(),
         3 => "Multiple".into(),
         4 => "Locked".into(),
-        _ => format!("AccountStatus({})", status),
+        _ => format!("AccountStatus({status})"),
     }
 }
 
@@ -526,7 +526,7 @@ mod tests {
     fn test_tcp_endpoint_generation() {
         // Test standard ports
         let port = 9991u16;
-        let endpoint = format!("http://localhost:{}", port);
+        let endpoint = format!("http://localhost:{port}");
         assert_eq!(
             endpoint, "http://localhost:9991",
             "Should generate correct localhost URL"
@@ -534,11 +534,11 @@ mod tests {
 
         // Test edge case ports
         let port = 1u16;
-        let endpoint = format!("http://localhost:{}", port);
+        let endpoint = format!("http://localhost:{port}");
         assert_eq!(endpoint, "http://localhost:1", "Should handle minimum port");
 
         let port = 65535u16;
-        let endpoint = format!("http://localhost:{}", port);
+        let endpoint = format!("http://localhost:{port}");
         assert_eq!(
             endpoint, "http://localhost:65535",
             "Should handle maximum port"
@@ -727,7 +727,7 @@ mod tests {
         assert!(result.is_err(), "Should fail on invalid hex");
 
         if let Err(e) = result {
-            let error_msg = format!("Failed to decode public key: {}", e);
+            let error_msg = format!("Failed to decode public key: {e}");
             assert!(
                 error_msg.contains("Failed to decode public key"),
                 "Error message should be descriptive"
@@ -740,8 +740,7 @@ mod tests {
         let startup_port_result = test_port.checked_add(1);
         if startup_port_result.is_none() {
             let error_msg = format!(
-                "Port overflow: {} + 1 exceeds maximum port number",
-                test_port
+                "Port overflow: {test_port} + 1 exceeds maximum port number",
             );
             assert!(
                 error_msg.contains("Port overflow"),

@@ -282,15 +282,11 @@ mod tests {
 
         assert!(
             zero_bits > expected - tolerance && zero_bits < expected + tolerance,
-            "Zero bits ({}) should be roughly half of total ({})",
-            zero_bits,
-            expected
+            "Zero bits ({zero_bits}) should be roughly half of total ({expected})",
         );
         assert!(
             one_bits > expected - tolerance && one_bits < expected + tolerance,
-            "One bits ({}) should be roughly half of total ({})",
-            one_bits,
-            expected
+            "One bits ({one_bits}) should be roughly half of total ({expected})",
         );
     }
 
