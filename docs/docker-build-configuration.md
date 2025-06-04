@@ -124,10 +124,10 @@ make test-docker
 
 ### Build Pipeline Considerations
 
-- **Consistent Environments**: Ensure CI uses same Rust version as Docker
+- **Consistent Environments**: CI uses same Rust version as Docker (stable)
+- **Linux Focus**: CI runs on Linux only, matching Docker deployment target
 - **Dependency Caching**: Leverage Docker layer caching for faster builds
 - **Security Scanning**: Include container security scanning in pipeline
-- **Multi-Architecture**: Consider building for different architectures if needed
 
 ### Environment Variables
 

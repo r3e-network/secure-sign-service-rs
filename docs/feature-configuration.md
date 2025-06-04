@@ -146,12 +146,12 @@ cargo check --features vsock --no-default-features
 
 ### Automated Testing
 
-The CI/CD pipeline tests multiple configurations:
+The CI/CD pipeline tests multiple configurations on Linux with stable Rust:
 
 1. **TCP Feature Testing**: Full test suite with TCP transport
 2. **VSOCK Feature Testing**: Full test suite with VSOCK transport  
 3. **No-Default-Features**: Test with minimal feature set
-4. **Cross-Compilation**: Verify builds for different targets
+4. **Cross-Compilation**: Verify builds for different Linux targets
 
 ### Build Verification
 
