@@ -35,15 +35,15 @@
 //! - **Transport Agnostic**: Supports both TCP and VSOCK communications
 
 use aes_gcm::{
-    AeadCore, Aes256Gcm, Key,
     aead::{Aead, KeyInit, OsRng},
+    AeadCore, Aes256Gcm, Key,
 };
 use p256::ecdh;
 use secure_sign_core::{hmac::HmacSha256, random::EnvCryptRandom, secp256r1::Keypair};
 use secure_sign_rpc::{
-    servicepb::{GetAccountStatusRequest, secure_sign_client::SecureSignClient},
+    servicepb::{secure_sign_client::SecureSignClient, GetAccountStatusRequest},
     startpb::{
-        DiffieHellmanRequest, StartSignerRequest, startup_service_client::StartupServiceClient,
+        startup_service_client::StartupServiceClient, DiffieHellmanRequest, StartSignerRequest,
     },
     vsock,
 };

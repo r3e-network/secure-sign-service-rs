@@ -4,7 +4,7 @@
 use alloc::string::{String, ToString};
 use core::fmt::{Display, Formatter};
 
-use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error};
+use serde::{de::Error, Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::bin::{BinEncoder, BinWriter};
 

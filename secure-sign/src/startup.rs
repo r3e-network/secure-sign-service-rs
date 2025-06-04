@@ -20,7 +20,7 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 use secure_sign_core::neo::sign::{Account, Signer};
 use secure_sign_rpc::{
-    DefaultSignService, servicepb::secure_sign_server::SecureSignServer, startup::StartSigner,
+    servicepb::secure_sign_server::SecureSignServer, startup::StartSigner, DefaultSignService,
 };
 use tokio::sync::oneshot;
 use tonic::transport::Server;

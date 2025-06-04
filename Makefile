@@ -43,16 +43,19 @@ help:
 	@echo "  all      - Build all available targets"
 	@echo ""
 	@echo "🔒 Security & Quality:"
-	@echo "  security - Run comprehensive security audit"
-	@echo "  audit    - Run dependency security audit"
-	@echo "  sbom     - Generate Software Bill of Materials"
-	@echo "  format   - Format all code"
-	@echo "  lint     - Run advanced linting"
+	@echo "  security      - Run comprehensive security audit"
+	@echo "  audit         - Run dependency security audit"
+	@echo "  sbom          - Generate Software Bill of Materials"
+	@echo "  format         - Format all code"
+	@echo "  verify-format  - Verify rustfmt config and formatting compliance"
+	@echo "  verify-features- Verify feature configuration and mutual exclusivity"
+	@echo "  lint           - Run advanced linting"
 	@echo ""
 	@echo "🛠️  Maintenance:"
-	@echo "  clean    - Clean build artifacts"
-	@echo "  install  - Install binaries to /usr/local/bin"
-	@echo "  deps     - Install build dependencies"
+	@echo "  clean       - Clean build artifacts"
+	@echo "  install     - Install binaries to /usr/local/bin"
+	@echo "  deps        - Install build dependencies"
+	@echo "  test-docker - Test Docker build configuration"
 	@echo ""
 	@echo "Environment Variables:"
 	@echo "  SGX_SDK_PATH - Path to Intel SGX SDK (default: /opt/intel/sgxsdk)"
@@ -162,7 +165,8 @@ dev-tcp:
 
 dev-check:
 	cargo fmt --all
-	cargo clippy --all-targets --all-features
+	cargo clippy --all-targets --features tcp --no-default-features
+	cargo clippy --all-targets --features vsock --no-default-features
 
 # SGX development helpers
 sgx-sim:
@@ -202,8 +206,9 @@ sbom:
 # Enhanced development targets with security
 dev-security:
 	$(MAKE) audit
-	cargo clippy --all-targets --all-features -- -D warnings -D clippy::unwrap_used
-	cargo fmt --all -- --check
+	$(MAKE) verify-format
+	cargo clippy --all-targets --features tcp --no-default-features -- -D warnings -D clippy::unwrap_used
+	cargo clippy --all-targets --features vsock --no-default-features -- -D warnings -D clippy::unwrap_used
 
 # Pre-commit checks (recommended before committing)
 pre-commit: dev-security test
@@ -219,6 +224,21 @@ format:
 	@echo "Formatting all Rust code..."
 	cargo fmt --all
 	@echo "✅ Code formatting complete"
+
+# Verify rustfmt configuration and formatting compliance
+verify-format:
+	@echo "Verifying rustfmt configuration and formatting..."
+	./scripts/verify-formatting.sh
+
+# Test Docker build configuration
+test-docker:
+	@echo "Testing Docker build configuration..."
+	./scripts/test-docker-build.sh
+
+# Verify feature configuration
+verify-features:
+	@echo "Verifying feature configuration..."
+	./scripts/verify-features.sh
 
 # Advanced linting
 lint:

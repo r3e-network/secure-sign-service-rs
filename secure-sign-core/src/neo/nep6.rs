@@ -57,9 +57,9 @@ use serde::{Deserialize, Serialize};
 use crate::{
     base64::FromBase64,
     neo::{
-        Contract, NamedParamType,
         nep2::TryFromNep2Key,
         sign::{Account, AccountDecrypting},
+        Contract, NamedParamType,
     },
     scrypt::ScryptParams,
     secp256r1::Keypair,
@@ -294,7 +294,7 @@ mod tests {
     use super::*;
     use crate::{
         base64::ToBase64,
-        neo::{ToNeo3Address, nep2::TryToNep2Key},
+        neo::{nep2::TryToNep2Key, ToNeo3Address},
         secp256r1::{Keypair, PrivateKey},
     };
 

@@ -22,7 +22,7 @@ mod run;
 mod startup;
 mod tools;
 
-use clap::{Parser, Subcommand, command};
+use clap::{command, Parser, Subcommand};
 use tokio::signal;
 
 /// Available CLI commands for the Secure Sign Service

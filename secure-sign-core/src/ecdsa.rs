@@ -32,8 +32,8 @@
 use alloc::string::{String, ToString};
 
 use p256::ecdsa::{
-    Signature, SigningKey, VerifyingKey,
     signature::{Signer, Verifier as P256Verifier},
+    Signature, SigningKey, VerifyingKey,
 };
 
 use crate::{bytes::ToArray, secp256r1};

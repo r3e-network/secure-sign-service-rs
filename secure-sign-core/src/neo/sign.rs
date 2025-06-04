@@ -32,8 +32,8 @@ use crate::{
     h160::{H160, H160_SIZE},
     h256::{H256, H256_SIZE},
     merkle::MerkleSha256,
-    neo::{Contract, SIGN_DATA_SIZE, ToScriptHash, ToSignData, check_sign::ToCheckSign, signpb::*},
-    secp256r1::{KEY_SIZE, Keypair, PublicKey},
+    neo::{check_sign::ToCheckSign, signpb::*, Contract, ToScriptHash, ToSignData, SIGN_DATA_SIZE},
+    secp256r1::{Keypair, PublicKey, KEY_SIZE},
 };
 
 /// Represents a NEO account with cryptographic credentials and metadata

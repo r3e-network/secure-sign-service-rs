@@ -34,8 +34,8 @@
 use std::sync::{Arc, Mutex};
 
 use aes_gcm::{
-    Aes256Gcm, Key, Nonce,
     aead::{Aead, KeyInit},
+    Aes256Gcm, Key, Nonce,
 };
 use p256::ecdh;
 use secure_sign_core::{

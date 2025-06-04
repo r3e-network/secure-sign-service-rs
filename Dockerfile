@@ -1,6 +1,7 @@
 # Multi-stage Docker build for Secure Sign Service
 # Stage 1: Build environment
-FROM rust:1.75-alpine AS builder
+# Updated to rust:1.81-alpine to support Cargo lock file version 4
+FROM rust:1.81-alpine AS builder
 
 # Install build dependencies
 RUN apk add --no-cache \

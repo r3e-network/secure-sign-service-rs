@@ -2,8 +2,8 @@
 // All Rights Reserved
 
 use aes::{
+    cipher::{generic_array::GenericArray, BlockDecrypt, BlockEncrypt, KeyInit},
     Aes256,
-    cipher::{BlockDecrypt, BlockEncrypt, KeyInit, generic_array::GenericArray},
 };
 
 pub const AES256_KEY_SIZE: usize = 32;

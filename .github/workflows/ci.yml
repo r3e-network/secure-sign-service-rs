@@ -43,8 +43,11 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all -- --check
 
-      - name: Run clippy
-        run: cargo clippy --all-targets --all-features -- -D warnings
+      - name: Run clippy (TCP)
+        run: cargo clippy --all-targets --features tcp --no-default-features -- -D warnings
+
+      - name: Run clippy (VSOCK)  
+        run: cargo clippy --all-targets --features vsock --no-default-features -- -D warnings
 
       - name: Check documentation
         run: cargo doc --all --no-deps --document-private-items
@@ -125,8 +128,11 @@ jobs:
         if: matrix.os == 'macOS-latest'
         run: brew install protobuf
 
-      - name: Run tests
-        run: cargo test --all --all-features
+      - name: Run tests (TCP)
+        run: cargo test --all --features tcp --no-default-features
+
+      - name: Run tests (VSOCK)
+        run: cargo test --all --features vsock --no-default-features
 
       - name: Run doc tests
         run: cargo test --doc --all

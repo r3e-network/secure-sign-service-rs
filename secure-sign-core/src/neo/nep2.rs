@@ -390,8 +390,20 @@ fn xor_array<const N: usize>(left: &[u8], right: &[u8]) -> Zeroizing<[u8; N]> {
     let mut dest = Zeroizing::new([0u8; N]);
 
     // Validate input array lengths match
-    assert_eq!(left.len(), right.len(), "left length {} != right length {}", left.len(), right.len());
-    assert_eq!(left.len(), dest.len(), "source length {} != dest length {}", left.len(), N);
+    assert_eq!(
+        left.len(),
+        right.len(),
+        "left length {} != right length {}",
+        left.len(),
+        right.len()
+    );
+    assert_eq!(
+        left.len(),
+        dest.len(),
+        "source length {} != dest length {}",
+        left.len(),
+        N
+    );
 
     // Perform XOR operation element by element
     left.iter()
