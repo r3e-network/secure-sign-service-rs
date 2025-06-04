@@ -2,6 +2,15 @@
 name = "secure-sign-core"
 version = "0.1.0"
 edition = "2021"
+description = "Core cryptographic library for NEO blockchain signing with TEE support"
+homepage = "https://github.com/r3e-network/secure-sign-service-rs"
+repository = "https://github.com/r3e-network/secure-sign-service-rs"
+license = "MIT"
+authors = ["R3E Network Team"]
+rust-version = "1.70"
+categories = ["cryptography", "no-std", "blockchain"]
+keywords = ["neo", "blockchain", "cryptography", "secp256r1", "nep6"]
+readme = "../README.md"
 
 [dependencies]
 hashbrown = { version = "0.15" }

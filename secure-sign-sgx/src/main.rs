@@ -39,6 +39,13 @@ pub struct RunCmd {
     )]
     pub enclave: String,
 
+    #[arg(
+        long,
+        help = "Path to the NEP-6 wallet file",
+        default_value = "wallet.json"
+    )]
+    pub wallet: String,
+
     #[arg(long, help = "Whether to run in debug mode", default_value = "false")]
     pub debug: bool,
 }
@@ -48,7 +55,7 @@ impl RunCmd {
         let enclave = SgxEnclave::new(self.enclave.clone(), None, self.debug)
             .map_err(|err| format!("Failed to create enclave: {}", err))?;
 
-        let service = Arc::new(SgxSignService::new(enclave));
+        let service = Arc::new(SgxSignService::new(enclave, self.wallet.clone())?);
         let (tx, rx) = oneshot::channel::<()>();
 
         let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), self.port);

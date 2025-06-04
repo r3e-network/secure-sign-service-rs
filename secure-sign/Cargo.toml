@@ -2,6 +2,15 @@
 name = "secure-sign"
 version = "0.1.0"
 edition = "2021"
+description = "A security-first NEO blockchain signing service CLI for Trusted Execution Environments"
+homepage = "https://github.com/r3e-network/secure-sign-service-rs"
+repository = "https://github.com/r3e-network/secure-sign-service-rs"
+license = "MIT"
+authors = ["R3E Network Team"]
+rust-version = "1.70"
+categories = ["cryptography", "command-line-utilities", "blockchain"]
+keywords = ["neo", "blockchain", "signing", "cli", "tee"]
+readme = "../README.md"
 
 [dependencies]
 secure-sign-core = { path = "../secure-sign-core", features = ["std"] }

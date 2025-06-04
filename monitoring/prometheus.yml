@@ -1,0 +1,33 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - "alert_rules.yml"
+
+scrape_configs:
+  # Secure Sign Service metrics
+  - job_name: 'secure-sign'
+    static_configs:
+      - targets: ['secure-sign:8080']  # Assuming metrics endpoint on port 8080
+    scrape_interval: 5s
+    metrics_path: /metrics
+    scheme: http
+    
+  # Node exporter for system metrics
+  - job_name: 'node-exporter'
+    static_configs:
+      - targets: ['node-exporter:9100']
+    scrape_interval: 10s
+
+  # Container metrics (if using Docker)
+  - job_name: 'cadvisor'
+    static_configs:
+      - targets: ['cadvisor:8080']
+    scrape_interval: 10s
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+          - alertmanager:9093 

@@ -1,12 +1,11 @@
 // Copyright @ 2025 - Present, R3E Network
 // All Rights Reserved
 
-use alloc::string::String;
-use alloc::vec::Vec;
-
-use crate::hash::Sha256;
+use alloc::{string::String, vec::Vec};
 
 use ::base58::{FromBase58, FromBase58Error, ToBase58};
+
+use crate::hash::Sha256;
 
 pub trait ToBase58Check {
     fn to_base58_check(&self) -> String;

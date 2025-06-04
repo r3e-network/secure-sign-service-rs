@@ -1,0 +1,67 @@
+version: '3.8'
+
+services:
+  secure-sign:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+      args:
+        RUST_VERSION: "1.75"
+        ALPINE_VERSION: "3.19"
+    container_name: secure-sign-service
+    ports:
+      - "127.0.0.1:9991:9991"  # Bind to localhost only for security
+    volumes:
+      # Mount wallet file (read-only for security)
+      - ./secure-sign/config/nep6_wallet.json:/app/config/wallet.json:ro
+      # Persistent log storage
+      - secure-sign-logs:/app/logs
+    environment:
+      - RUST_LOG=info
+      - TZ=UTC
+    restart: unless-stopped
+    networks:
+      - secure-sign-network
+    healthcheck:
+      test: ["CMD", "/app/bin/secure-sign", "--help"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp:noexec,nosuid,size=100m
+    ulimits:
+      nofile:
+        soft: 1024
+        hard: 2048
+    mem_limit: 512m
+    cpus: "1.0"
+
+  # Optional: Monitoring with Prometheus metrics (if implemented)
+  # prometheus:
+  #   image: prom/prometheus:latest
+  #   container_name: secure-sign-prometheus
+  #   ports:
+  #     - "9090:9090"
+  #   volumes:
+  #     - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+  #   networks:
+  #     - secure-sign-network
+  #   depends_on:
+  #     - secure-sign
+
+volumes:
+  secure-sign-logs:
+    driver: local
+
+networks:
+  secure-sign-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16 

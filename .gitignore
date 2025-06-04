@@ -1,8 +1,82 @@
+# Rust
 /target
 **/target
+Cargo.lock.bak
+
+# Logs
 **/*.log
+*.log
+
+# Security-sensitive files
 **/*.pem
+**/*.key
+**/*.p12
+**/*.pfx
+**/*.crt
+**/wallet.json
+!secure-sign/config/nep6_wallet.json
+
+# IDE
 .vscode/
 .idea/
+*.swp
+*.swo
+*~
+
+# OS
 **/.DS_Store
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
+.env.*.local
 **/venv/
+**/__pycache__/
+
+# Docker
+.dockerignore
+
+# Build artifacts
+*.so
+*.dylib
+*.dll
+enclave.signed.so
+
+# Temporary files
+*.tmp
+*.temp
+.cache/
+
+# Security and monitoring artifacts
+sbom.json
+SBOM.md
+audit-report.json
+*.sarif
+
+# Metrics and monitoring
+prometheus_data/
+grafana_data/
+
+# Environment and configuration
+.env
+.env.local
+.env.*.local
+
+# Development artifacts
+logs/
+backup/
+coverage/
+
+# IDE and editor files
+*.swp
+*.swo
+*.bak
+*.orig
+.vscode/settings.json
+
+# OS specific
+.DS_Store
+Thumbs.db
+ehthumbs.db

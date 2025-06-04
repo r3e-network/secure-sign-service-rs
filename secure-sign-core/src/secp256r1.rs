@@ -3,12 +3,11 @@
 
 use alloc::string::{String, ToString};
 
-use crate::bytes::ToArray;
-use crate::random::CryptRandom;
-
 use p256::elliptic_curve::sec1::ToEncodedPoint;
 use subtle::ConstantTimeEq;
 use zeroize::{Zeroize, Zeroizing};
+
+use crate::{bytes::ToArray, random::CryptRandom};
 
 pub const KEY_SIZE: usize = 32;
 
@@ -110,7 +109,6 @@ impl PublicKey {
             _ => Err(DecodePublicKeyError::InvalidKeyLength(key.len())),
         }
     }
-
 }
 
 #[derive(Debug, Copy, Clone, thiserror::Error)]
@@ -209,8 +207,10 @@ impl Keypair {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ecdsa::{Sign, Verify};
-    use crate::random::EnvCryptRandom;
+    use crate::{
+        ecdsa::{Sign, Verify},
+        random::EnvCryptRandom,
+    };
 
     #[test]
     fn test_keypair_gen() {

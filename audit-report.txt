@@ -1,0 +1,51 @@
+[0m[0m[1m[33mCrate:    [0m serde_cbor
+[0m[0m[1m[33mVersion:  [0m 0.11.2
+[0m[0m[1m[33mWarning:  [0m unmaintained
+[0m[0m[1m[33mTitle:    [0m serde_cbor is unmaintained
+[0m[0m[1m[33mDate:     [0m 2021-08-15
+[0m[0m[1m[33mID:       [0m RUSTSEC-2021-0127
+[0m[0m[1m[33mURL:      [0m https://rustsec.org/advisories/RUSTSEC-2021-0127
+[0m[0m[1m[33mDependency tree:
+[0mserde_cbor 0.11.2
+└── aws-nitro-enclaves-nsm-api 0.4.0
+    └── secure-sign-nitro 0.1.0
+
+[0m[0m[1m[33mCrate:    [0m tokio
+[0m[0m[1m[33mVersion:  [0m 1.44.0
+[0m[0m[1m[33mWarning:  [0m unsound
+[0m[0m[1m[33mTitle:    [0m Broadcast channel calls clone in parallel, but does not require `Sync`
+[0m[0m[1m[33mDate:     [0m 2025-04-07
+[0m[0m[1m[33mID:       [0m RUSTSEC-2025-0023
+[0m[0m[1m[33mURL:      [0m https://rustsec.org/advisories/RUSTSEC-2025-0023
+[0m[0m[1m[33mDependency tree:
+[0mtokio 1.44.0
+├── tower 0.4.13
+│   └── tonic 0.12.3
+│       ├── tokio-vsock 0.7.0
+│       │   └── secure-sign-rpc 0.1.0
+│       │       └── secure-sign 0.1.0
+│       ├── secure-sign-rpc 0.1.0
+│       └── secure-sign 0.1.0
+├── tonic 0.12.3
+├── tokio-vsock 0.7.0
+├── tokio-util 0.7.13
+│   ├── tower 0.4.13
+│   └── h2 0.4.8
+│       ├── tonic 0.12.3
+│       └── hyper 1.6.0
+│           ├── tonic 0.12.3
+│           ├── hyper-util 0.1.10
+│           │   ├── tonic 0.12.3
+│           │   ├── secure-sign-rpc 0.1.0
+│           │   └── hyper-timeout 0.5.2
+│           │       └── tonic 0.12.3
+│           └── hyper-timeout 0.5.2
+├── tokio-stream 0.1.17
+│   └── tonic 0.12.3
+├── secure-sign-rpc 0.1.0
+├── secure-sign 0.1.0
+├── hyper-util 0.1.10
+├── hyper-timeout 0.5.2
+├── hyper 1.6.0
+└── h2 0.4.8
+

@@ -1,15 +1,55 @@
-
 [workspace]
 resolver = "2"
 
 members = [ 
     "secure-sign",
     "secure-sign-core",
-    "secure-sign-rpc",
+    "secure-sign-rpc", 
     "secure-sign-nitro",
 ]
 
+# SGX modules - conditionally included when SGX SDK is available
+# To enable SGX support: cargo build --features sgx
+exclude = [
+    "secure-sign-sgx",
+    "secure-sign-sgx-enclave",
+]
+
+[workspace.metadata]
+description = "A security-first NEO blockchain signing service for Trusted Execution Environments"
+homepage = "https://github.com/r3e-network/secure-sign-service-rs"
+repository = "https://github.com/r3e-network/secure-sign-service-rs"
+license = "MIT"
+authors = ["R3E Network Team"]
+edition = "2021"
+rust-version = "1.70"
+categories = ["cryptography", "network-programming", "blockchain"]
+keywords = ["neo", "blockchain", "signing", "tee", "sgx"]
+
+[workspace.dependencies]
+# Core dependencies
+secure-sign-core = { path = "secure-sign-core" }
+secure-sign-rpc = { path = "secure-sign-rpc" }
+
+# Async runtime
+tokio = { version = "1.0", features = ["full"] }
+
+# Serialization
+prost = "0.13"
+tonic = "0.12"
+
+# CLI
+clap = { version = "4.5", features = ["derive"] }
+
+# Logging
+log = "0.4"
+env_logger = "0.11"
+
+# Error handling
+thiserror = "2.0"
+anyhow = "1.0"
+
 [profile.release]
-lto           = "fat"
-opt-level     = 2
+lto = "fat"
+opt-level = 2
 codegen-units = 1

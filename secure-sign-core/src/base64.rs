@@ -1,10 +1,9 @@
 // Copyright @ 2025 - Present, R3E Network
 // All Rights Reserved
 
-use alloc::vec::Vec;
-use alloc::string::String;
+use alloc::{string::String, vec::Vec};
 
-use base64::{engine::general_purpose::STANDARD, Engine};
+use base64::{Engine, engine::general_purpose::STANDARD};
 
 pub trait ToBase64 {
     fn to_base64_std(&self) -> String;

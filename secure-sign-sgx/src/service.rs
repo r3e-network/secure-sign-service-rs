@@ -19,13 +19,18 @@ pub struct SgxSignService {
 }
 
 impl SgxSignService {
-    pub fn new(enclave: SgxEnclave) -> Self {
+    pub fn new(enclave: SgxEnclave, wallet_path: String) -> Result<Self, Box<dyn std::error::Error>> {
         let eid = enclave.eid;
-        Self {
+        let startup = SgxStartup::new(eid, wallet_path);
+        
+        // Initialize the enclave with the wallet
+        startup.startup()?;
+        
+        Ok(Self {
             _enclave: enclave,
             signer: SgxSigner::new(eid),
-            startup: SgxStartup::new(eid),
-        }
+            startup,
+        })
     }
 }
 

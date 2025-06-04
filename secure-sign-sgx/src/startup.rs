@@ -1,53 +1,74 @@
 // Copyright @ 2025 - Present, R3E Network
 // All Rights Reserved
 
+use std::fs;
+
 use crate::ffi::*;
-use secure_sign_rpc::IntoRpcStatus;
-
+use secure_sign_rpc::startpb::*;
 use sgx_types::*;
+use thiserror::Error;
 
-#[derive(Debug, Clone, thiserror::Error)]
+#[derive(Error, Debug)]
 pub enum StartupError {
     #[error("startup: sgx ecall error: {0}")]
     EcallError(sgx_status_t),
-
-    #[error("startup: status error: {0}")]
-    StatusError(i32),
+    
+    #[error("startup: enclave returned error: {0}")]
+    EnclaveError(i32),
+    
+    #[error("startup: failed to read wallet file: {0}")]
+    WalletReadError(std::io::Error),
 }
 
-impl IntoRpcStatus for StartupError {
-    fn into_rpc_status(self) -> tonic::Status {
-        match self {
-            StartupError::EcallError(_) => tonic::Status::internal(self.to_string()),
-            StartupError::StatusError(_) => tonic::Status::invalid_argument(self.to_string()),
-        }
+impl From<StartupError> for tonic::Status {
+    fn from(err: StartupError) -> Self {
+        tonic::Status::internal(err.to_string())
     }
 }
 
 pub struct SgxStartup {
     eid: sgx_enclave_id_t,
+    wallet_path: String,
 }
 
 impl SgxStartup {
-    pub fn new(eid: sgx_enclave_id_t) -> Self {
-        Self { eid }
+    pub fn new(eid: sgx_enclave_id_t, wallet_path: String) -> Self {
+        Self { eid, wallet_path }
+    }
+
+    pub fn startup(&self) -> Result<(), StartupError> {
+        // Read the wallet file
+        let wallet_data = fs::read(&self.wallet_path)
+            .map_err(StartupError::WalletReadError)?;
+
+        let mut retval = 0i32;
+        let status = unsafe { 
+            secure_sign_sgx_startup(
+                self.eid, 
+                &mut retval,
+                wallet_data.as_ptr(),
+                wallet_data.len(),
+            ) 
+        };
+        
+        if status != sgx_status_t::SGX_SUCCESS {
+            return Err(StartupError::EcallError(status));
+        }
+        
+        if retval != 0 {
+            return Err(StartupError::EnclaveError(retval));
+        }
+
+        Ok(())
     }
 
     pub fn diffie_hellman(
         &self,
         blob_ephemeral_public_key: &[u8],
     ) -> Result<Vec<u8>, StartupError> {
-        let mut retval = 0;
-        let status = unsafe { secure_sign_sgx_startup(self.eid, &mut retval) };
-        if status != sgx_status_t::SGX_SUCCESS {
-            return Err(StartupError::EcallError(status));
-        }
+        let mut alice_ephemeral_public_key = [0u8; 33];
+        let mut retval = 0i32;
 
-        if retval < 0 {
-            return Err(StartupError::StatusError(retval));
-        }
-
-        let mut alice_ephemeral_public_key = vec![0u8; 33];
         let status = unsafe {
             secure_sign_sgx_diffie_hellman(
                 self.eid,
@@ -57,14 +78,16 @@ impl SgxStartup {
                 alice_ephemeral_public_key.as_mut_ptr(),
             )
         };
+
         if status != sgx_status_t::SGX_SUCCESS {
             return Err(StartupError::EcallError(status));
         }
-
-        if retval < 0 {
-            return Err(StartupError::StatusError(retval));
+        
+        if retval != 0 {
+            return Err(StartupError::EnclaveError(retval));
         }
-        Ok(alice_ephemeral_public_key)
+
+        Ok(alice_ephemeral_public_key.to_vec())
     }
 
     pub fn start_signer(
@@ -72,7 +95,8 @@ impl SgxStartup {
         encrypted_wallet_passphrase: &[u8],
         nonce: &[u8],
     ) -> Result<(), StartupError> {
-        let mut retval = 0;
+        let mut retval = 0i32;
+
         let status = unsafe {
             secure_sign_sgx_start_signer(
                 self.eid,
@@ -83,13 +107,15 @@ impl SgxStartup {
                 nonce.len(),
             )
         };
+
         if status != sgx_status_t::SGX_SUCCESS {
             return Err(StartupError::EcallError(status));
         }
-
-        if retval < 0 {
-            return Err(StartupError::StatusError(retval));
+        
+        if retval != 0 {
+            return Err(StartupError::EnclaveError(retval));
         }
+
         Ok(())
     }
 }

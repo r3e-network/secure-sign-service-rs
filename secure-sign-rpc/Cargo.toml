@@ -2,6 +2,15 @@
 name = "secure-sign-rpc"
 version = "0.1.0"
 edition = "2021"
+description = "gRPC API layer for secure blockchain signing with TCP and VSOCK transport"
+homepage = "https://github.com/r3e-network/secure-sign-service-rs"
+repository = "https://github.com/r3e-network/secure-sign-service-rs"
+license = "MIT"
+authors = ["R3E Network Team"]
+rust-version = "1.70"
+categories = ["network-programming", "api-bindings", "blockchain"]
+keywords = ["grpc", "rpc", "vsock", "tee", "signing"]
+readme = "../README.md"
 
 [dependencies]
 secure-sign-core = { path = "../secure-sign-core", features = ["std"] }

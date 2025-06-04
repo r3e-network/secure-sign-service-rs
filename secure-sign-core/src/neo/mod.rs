@@ -7,16 +7,17 @@ pub mod nep6;
 pub mod sign;
 pub mod signpb;
 
-use alloc::string::String;
-use alloc::vec::Vec;
-
-use crate::base58::ToBase58Check;
-use crate::h160::{H160, H160_SIZE};
-use crate::hash::{Ripemd160, Sha256};
-use crate::neo::check_sign::{CheckSign, ToCheckSign};
-use crate::secp256r1::PublicKey;
+use alloc::{string::String, vec::Vec};
 
 use serde::{Deserialize, Serialize};
+
+use crate::{
+    base58::ToBase58Check,
+    h160::{H160, H160_SIZE},
+    hash::{Ripemd160, Sha256},
+    neo::check_sign::{CheckSign, ToCheckSign},
+    secp256r1::PublicKey,
+};
 
 pub const SCRIPT_HASH_SIZE: usize = H160_SIZE;
 pub const ADDRESS_NEO3: u8 = 0x35;
@@ -97,9 +98,9 @@ impl ToNeo3Address for PublicKey {
     }
 }
 
-impl Into<String> for Address {
-    fn into(self) -> String {
-        self.base58check
+impl From<Address> for String {
+    fn from(val: Address) -> Self {
+        val.base58check
     }
 }
 

@@ -54,9 +54,13 @@ pub enum ErrCode {
 }
 
 #[no_mangle]
-pub extern "C" fn secure_sign_sgx_startup() -> i32 {
-    // let nep6_wallet = unsafe { slice::from_raw_parts(nep6_wallet, nep6_wallet_len) };
-    match startup::secure_sign_sgx_startup(/* nep6_wallet */) {
+pub extern "C" fn secure_sign_sgx_startup(
+    nep6_wallet_data: *const u8,
+    nep6_wallet_data_len: usize,
+) -> i32 {
+    let nep6_wallet_data = unsafe { slice::from_raw_parts(nep6_wallet_data, nep6_wallet_data_len) };
+    
+    match startup::secure_sign_sgx_startup(nep6_wallet_data) {
         Ok(()) => 0,
         Err(r) => r as i32,
     }

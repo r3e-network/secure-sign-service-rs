@@ -4,7 +4,12 @@
 use sgx_types::*;
 
 extern "C" {
-    pub fn secure_sign_sgx_startup(eid: sgx_enclave_id_t, retval: *mut i32) -> sgx_status_t;
+    pub fn secure_sign_sgx_startup(
+        eid: sgx_enclave_id_t, 
+        retval: *mut i32,
+        nep6_wallet_data: *const u8,
+        nep6_wallet_data_len: usize,
+    ) -> sgx_status_t;
 
     pub fn secure_sign_sgx_diffie_hellman(
         eid: sgx_enclave_id_t,

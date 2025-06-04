@@ -1,0 +1,63 @@
+# Secure Sign Service Configuration
+# Copyright @ 2025 - Present, R3E Network
+
+[service]
+# Service binding configuration
+port = 9991
+# bind_address = "127.0.0.1"  # Localhost only for security
+# For VSOCK mode, set cid > 0
+# vsock_cid = 0
+
+[wallet]
+# Path to NEP-6 wallet file
+path = "secure-sign/config/nep6_wallet.json"
+# Wallet will be decrypted via secure channel
+
+[security]
+# Security configuration
+# max_requests_per_minute = 100
+# require_tls = false  # Set to true for production with TLS certificates
+# allowed_public_keys = []  # Empty allows all, specify list to restrict
+
+[logging]
+# Logging configuration (uses RUST_LOG environment variable)
+# level = "info"
+# format = "json"  # or "plain"
+
+[tee]
+# Trusted Execution Environment settings
+# platform = "none"  # Options: "none", "sgx", "nitro"
+# sgx_enclave_path = "enclave.signed.so"
+# nitro_cid = 0
+
+[performance]
+# Performance tuning
+# max_concurrent_requests = 100
+# request_timeout_seconds = 30
+# shutdown_timeout_seconds = 10
+
+[monitoring]
+# Monitoring and observability
+# metrics_enabled = false
+# metrics_port = 8080
+# health_check_enabled = true
+
+# Example production configuration:
+# [service]
+# port = 9991
+# bind_address = "127.0.0.1"
+# 
+# [wallet]
+# path = "/opt/secure-sign/config/wallet.json"
+# 
+# [security]
+# max_requests_per_minute = 1000
+# require_tls = true
+# 
+# [logging]
+# level = "info"
+# format = "json"
+# 
+# [monitoring]
+# metrics_enabled = true
+# metrics_port = 8080 

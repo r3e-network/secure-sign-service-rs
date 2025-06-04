@@ -5,7 +5,10 @@
 
 enclave {
     trusted {
-        public int32_t secure_sign_sgx_startup();
+        public int32_t secure_sign_sgx_startup(
+            [in, size=nep6_wallet_data_len] const char* nep6_wallet_data,
+            size_t nep6_wallet_data_len
+        );
 
         public int32_t secure_sign_sgx_diffie_hellman(
             [in, size=blob_ephemeral_public_key_len] const char* blob_ephemeral_public_key,
