@@ -204,6 +204,7 @@ jobs:
       - name: Upload Trivy scan results
         uses: github/codeql-action/upload-sarif@v3
         if: always()
+        continue-on-error: true  # Allow failure if Advanced Security is not enabled
         with:
           sarif_file: 'trivy-results.sarif'
 
