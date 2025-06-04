@@ -39,7 +39,7 @@ COPY secure-sign-core/build.rs ./secure-sign-core/
 COPY secure-sign-rpc/build.rs ./secure-sign-rpc/
 
 # Create minimal source files for dependency build
-RUN mkdir -p secure-sign/src secure-sign-core/src secure-sign-rpc/src secure-sign-nitro/src && \
+RUN mkdir -p secure-sign/src secure-sign-core/src/neo secure-sign-rpc/src secure-sign-nitro/src && \
     echo "fn main() {}" > secure-sign/src/main.rs && \
     echo "// dummy lib" > secure-sign-core/src/lib.rs && \
     echo "// dummy lib" > secure-sign-rpc/src/lib.rs && \
