@@ -42,8 +42,8 @@ impl<T: Copy + Default, const N: usize> ToArray<T, N> for [T] {
 
 #[cfg(test)]
 mod tests {
-    use alloc::vec;
     use super::*;
+    use alloc::vec;
 
     /// Test ToArray with u8 slice to array conversion
     ///

@@ -562,7 +562,7 @@ mod tests {
             verify_duration.as_millis()
         );
 
-#[cfg(feature = "std")]
+        #[cfg(feature = "std")]
         println!(
             "Performance: 100 signatures in {}ms, 100 verifications in {}ms",
             sign_duration.as_millis(),

@@ -571,7 +571,7 @@ mod tests {
             "Large Merkle tree should produce valid root"
         );
 
-#[cfg(feature = "std")]
+        #[cfg(feature = "std")]
         println!(
             "Merkle tree of {} hashes computed in: {}μs",
             large_hash_count,
