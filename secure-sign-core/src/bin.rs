@@ -199,7 +199,7 @@ mod tests {
         assert!(!writer.is_empty(), "Should not be empty");
 
         // Test write with different types
-        writer.write(&[5, 6]);
+        writer.write([5, 6]);
         writer.write(b"test");
         assert_eq!(
             writer.buffer,

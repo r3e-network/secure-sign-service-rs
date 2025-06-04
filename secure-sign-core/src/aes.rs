@@ -103,7 +103,7 @@ mod tests {
 
         // Even zero data should change when encrypted (unless it's the specific AES zero block)
         // We can't predict the exact result, but it should be deterministic
-        let encrypted_zero = zero_data;
+        let _encrypted_zero = zero_data;
 
         // Decrypt back
         let result = zero_key.aes256_ecb_decrypt_aligned(&mut zero_data);

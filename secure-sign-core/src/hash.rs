@@ -278,7 +278,7 @@ mod tests {
         );
 
         // Test with single slice
-        let single_slice = vec![b"single"];
+        let single_slice = [b"single"];
         let single_hash = single_slice.iter().slices_sha256();
         let single_direct_hash = b"single".sha256();
         assert_eq!(
@@ -287,7 +287,7 @@ mod tests {
         );
 
         // Test with empty slices in the iterator
-        let mixed_slices = vec![
+        let mixed_slices = [
             b"start".as_slice(),
             b"".as_slice(),
             b"middle".as_slice(),

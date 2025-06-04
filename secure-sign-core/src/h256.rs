@@ -67,17 +67,12 @@ impl BinEncoder for H256 {
 
 #[cfg(test)]
 mod tests {
-    use alloc::{format, string::ToString, vec::Vec};
+    use alloc::{format, vec::Vec};
     use core::hash::{Hash, Hasher};
 
     // Mock DefaultHasher for no-std environment
+    #[derive(Default)]
     struct DefaultHasher(u64);
-
-    impl Default for DefaultHasher {
-        fn default() -> Self {
-            DefaultHasher(0)
-        }
-    }
 
     impl DefaultHasher {
         fn new() -> Self {
@@ -287,7 +282,7 @@ mod tests {
         );
 
         // Test Clone trait
-        let cloned = original.clone();
+        let cloned = original;
         assert_eq!(cloned, original, "Clone should create identical instance");
         assert_eq!(
             cloned.as_le_bytes(),
