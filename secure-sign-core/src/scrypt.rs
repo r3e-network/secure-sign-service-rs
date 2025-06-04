@@ -283,10 +283,7 @@ mod tests {
 
         for (i, params) in invalid_params.iter().enumerate() {
             let result: Result<Zeroizing<[u8; 32]>, _> = password.derive_scrypt_key(salt, *params);
-            assert!(
-                result.is_err(),
-                "Invalid parameters {i} should be rejected",
-            );
+            assert!(result.is_err(), "Invalid parameters {i} should be rejected",);
 
             if let Err(e) = result {
                 assert!(
@@ -516,10 +513,7 @@ mod tests {
             assert!(result.is_ok(), "Parameters r={r}, p={p} should work");
 
             if let Ok(key) = result {
-                assert_ne!(
-                    *key, [0u8; 32],
-                    "r={r}, p={p} should produce non-zero key",
-                );
+                assert_ne!(*key, [0u8; 32], "r={r}, p={p} should produce non-zero key",);
             }
         }
     }

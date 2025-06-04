@@ -329,11 +329,7 @@ mod tests {
 
             // Should produce valid output for any size
             if size == 0 {
-                assert_eq!(
-                    root,
-                    H256::default(),
-                    "Size {size} should return zero hash",
-                );
+                assert_eq!(root, H256::default(), "Size {size} should return zero hash",);
             } else {
                 assert_ne!(
                     root,
@@ -589,9 +585,7 @@ mod tests {
         let sizes = vec![100, 500, 1000, 2000];
 
         for size in sizes {
-            let hashes: Vec<H256> = (0..size)
-                .map(|i| test_hash(&format!("hash_{i}")))
-                .collect();
+            let hashes: Vec<H256> = (0..size).map(|i| test_hash(&format!("hash_{i}"))).collect();
 
             let root = hashes.merkle_sha256();
 

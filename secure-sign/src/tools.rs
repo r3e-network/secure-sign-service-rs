@@ -303,9 +303,7 @@ impl StatusCmd {
         // Query account status from the signing service
         let mut client = SecureSignClient::new(channel);
         let res = client
-            .get_account_status(GetAccountStatusRequest {
-                public_key,
-            })
+            .get_account_status(GetAccountStatusRequest { public_key })
             .await
             .map_err(|s| format!("Failed to get account status: {}:{}", s.code(), s.message()))?;
 
@@ -739,9 +737,7 @@ mod tests {
         let test_port = 65535u16;
         let startup_port_result = test_port.checked_add(1);
         if startup_port_result.is_none() {
-            let error_msg = format!(
-                "Port overflow: {test_port} + 1 exceeds maximum port number",
-            );
+            let error_msg = format!("Port overflow: {test_port} + 1 exceeds maximum port number",);
             assert!(
                 error_msg.contains("Port overflow"),
                 "Should format port overflow error"
