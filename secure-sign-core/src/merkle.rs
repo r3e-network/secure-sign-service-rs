@@ -208,6 +208,7 @@ fn children_sha256(off: usize, hashes: &[H256]) -> H256 {
 #[cfg(test)]
 mod tests {
     use alloc::{format, vec, vec::Vec};
+    #[cfg(feature = "std")]
     use std::time::Instant;
 
     use super::*;
@@ -543,6 +544,7 @@ mod tests {
     ///
     /// Ensures Merkle computation performs adequately for blockchain use.
     #[test]
+    #[cfg(feature = "std")]
     fn test_merkle_performance() {
         // Simulate a block with many transactions
         let large_hash_count = 1000;
@@ -569,6 +571,7 @@ mod tests {
             "Large Merkle tree should produce valid root"
         );
 
+#[cfg(feature = "std")]
         println!(
             "Merkle tree of {} hashes computed in: {}μs",
             large_hash_count,

@@ -125,7 +125,8 @@ impl HmacSha256 for [u8] {
 
 #[cfg(test)]
 mod tests {
-    use alloc::vec;
+    use alloc::{vec, vec::Vec};
+    #[cfg(feature = "std")]
     use std::time::Instant;
 
     use super::*;
@@ -414,6 +415,7 @@ mod tests {
     ///
     /// Ensures HMAC operations perform adequately for frequent use.
     #[test]
+    #[cfg(feature = "std")]
     fn test_hmac_performance() {
         let key = b"performance test key";
         let data = b"performance test data";

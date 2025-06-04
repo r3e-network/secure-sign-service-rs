@@ -69,6 +69,7 @@ impl FromBase58Check for Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloc::{format, vec};
 
     /// Test Base58Check encoding and decoding round-trip
     ///

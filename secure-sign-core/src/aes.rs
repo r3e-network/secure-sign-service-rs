@@ -52,7 +52,7 @@ impl Aes256EcbCipher for [u8] {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alloc::vec::Vec;
+    use alloc::{format, vec, vec::Vec};
 
     /// Test AES-256 ECB encryption and decryption basic functionality
     ///

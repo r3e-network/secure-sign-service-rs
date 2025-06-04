@@ -237,6 +237,7 @@ impl<T: AsRef<[u8]>> DeriveScryptKey for T {
 mod tests {
     use alloc::{format, string::String, vec};
     use core::any;
+    #[cfg(feature = "std")]
     use std::time::{Duration, Instant};
 
     use super::*;
@@ -456,6 +457,7 @@ mod tests {
     ///
     /// Verifies that the NEP-6 recommended parameters work correctly.
     #[test]
+    #[cfg(feature = "std")]
     fn test_nep6_standard_parameters() {
         let password = b"test password for NEP-6";
         let salt = b"test salt";
@@ -485,6 +487,7 @@ mod tests {
             "NEP-6 parameters should complete reasonably quickly"
         );
 
+#[cfg(feature = "std")]
         println!("NEP-6 scrypt derivation took: {}ms", duration.as_millis());
     }
 
@@ -522,6 +525,7 @@ mod tests {
     ///
     /// Verifies that different N values affect memory usage as expected.
     #[test]
+    #[cfg(feature = "std")]
     fn test_scrypt_memory_scaling() {
         let password = b"test password";
         let salt = b"test salt";
@@ -542,6 +546,7 @@ mod tests {
             // Generally, higher N should take longer (though this can be flaky)
             if previous_duration.as_nanos() > 0 {
                 // Allow some variance, but generally should increase
+#[cfg(feature = "std")]
                 println!(
                     "N={}: {}μs (previous: {}μs)",
                     n,
@@ -664,6 +669,7 @@ mod tests {
     ///
     /// Ensures scrypt performance is reasonable for different parameter sets.
     #[test]
+    #[cfg(feature = "std")]
     fn test_scrypt_performance_various_params() {
         let password = b"performance test password";
         let salt = b"performance test salt";
@@ -711,6 +717,7 @@ mod tests {
                 max_time_ms
             );
 
+#[cfg(feature = "std")]
             println!(
                 "{} scrypt (N={}): {}ms",
                 name,

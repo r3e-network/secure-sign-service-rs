@@ -94,7 +94,7 @@ pub fn to_varint_le(value: u64) -> (u8, [u8; 9]) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alloc::vec::Vec;
+    use alloc::{vec, vec::Vec};
 
     /// Simple mock BinWriter for testing
     #[derive(Debug, Default)]
