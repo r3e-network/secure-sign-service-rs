@@ -128,7 +128,7 @@ impl Signer {
         account
             .keypair
             .private_key()
-            .sign(&sign_data)
+            .sign(sign_data)
             .map(|ref sign| sign.into())
             .map_err(|err| SignError::EcdsaSignError(err.to_string()))
     }
@@ -219,7 +219,7 @@ impl Signer {
             let signature = account
                 .keypair
                 .private_key()
-                .sign(&sign_data)
+                .sign(sign_data)
                 .map_err(|err| SignError::EcdsaSignError(err.to_string()))?;
 
             signs.push(AccountSigns {

@@ -31,6 +31,7 @@ impl IntoRpcStatus for SignError {
     }
 }
 
+#[allow(clippy::result_large_err)]
 pub fn to_h160_vec(source: Vec<Vec<u8>>) -> Result<Vec<H160>, tonic::Status> {
     let mut h160s = Vec::with_capacity(source.len());
     for hash in source {

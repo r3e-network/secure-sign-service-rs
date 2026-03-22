@@ -32,7 +32,7 @@ impl AsRef<[u8; H256_SIZE]> for H256 {
 impl AsRef<[u8]> for H256 {
     #[inline]
     fn as_ref(&self) -> &[u8] {
-        return &self.0;
+        &self.0
     }
 }
 
@@ -61,6 +61,6 @@ impl Default for H256 {
 impl BinEncoder for H256 {
     #[inline]
     fn encode_bin(&self, w: &mut impl BinWriter) {
-        w.write(&self.0);
+        w.write(self.0);
     }
 }

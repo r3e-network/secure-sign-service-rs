@@ -97,9 +97,9 @@ impl ToNeo3Address for PublicKey {
     }
 }
 
-impl Into<String> for Address {
-    fn into(self) -> String {
-        self.base58check
+impl From<Address> for String {
+    fn from(val: Address) -> Self {
+        val.base58check
     }
 }
 

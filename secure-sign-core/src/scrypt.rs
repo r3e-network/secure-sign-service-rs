@@ -61,7 +61,7 @@ impl<T: AsRef<[u8]>> DeriveScryptKey for T {
             .map_err(|_err| ScryptDeriveError::InvalidParams)?;
 
         let mut derived = Zeroizing::new([0u8; N]);
-        let _ = scrypt::scrypt(key, salt, &params, derived.as_mut_slice())
+        scrypt::scrypt(key, salt, &params, derived.as_mut_slice())
             .map_err(|_err| ScryptDeriveError::InvalidDerivedLength)?;
 
         Ok(derived)

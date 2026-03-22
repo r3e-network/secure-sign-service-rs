@@ -21,18 +21,64 @@ use zeroize::Zeroizing;
 
 const SHARED_KEY_SIZE: usize = 32;
 
+/// Helper to lock the mutex, converting a poisoned lock into a gRPC internal error.
+#[allow(clippy::result_large_err)]
+fn lock_state<T>(
+    state: &std::sync::Mutex<T>,
+) -> Result<std::sync::MutexGuard<'_, T>, tonic::Status> {
+    state
+        .lock()
+        .map_err(|_| tonic::Status::internal("internal state corrupted"))
+}
+
 pub trait StartSigner: Send + Sync + 'static {
     fn start(self, accounts: Vec<Account>) -> Result<oneshot::Sender<()>, Box<dyn Error>>;
 }
 
-struct StartupState<Start, Random> {
+pub trait RecipientProvider: Send + Sync + 'static {
+    fn prepare_attestation_document(&mut self) -> Result<Vec<u8>, Box<dyn Error>>;
+
+    fn decrypt_ciphertext_for_recipient(
+        &mut self,
+        ciphertext_for_recipient: &[u8],
+    ) -> Result<Zeroizing<Vec<u8>>, Box<dyn Error>>;
+}
+
+pub struct UnsupportedRecipientProvider;
+
+impl RecipientProvider for UnsupportedRecipientProvider {
+    fn prepare_attestation_document(&mut self) -> Result<Vec<u8>, Box<dyn Error>> {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "Recipient attestation is not supported in this mode",
+        )
+        .into())
+    }
+
+    fn decrypt_ciphertext_for_recipient(
+        &mut self,
+        _ciphertext_for_recipient: &[u8],
+    ) -> Result<Zeroizing<Vec<u8>>, Box<dyn Error>> {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "Recipient decrypt is not supported in this mode",
+        )
+        .into())
+    }
+}
+
+struct StartupState<Start, Random, Recipient> {
     wallet: Nep6Wallet,
     crypt_random: Random,
     shared_secret: Option<Zeroizing<[u8; SHARED_KEY_SIZE]>>,
     start: Option<Start>,
+    recipient: Recipient,
+    recipient_attestation_prepared: bool,
 }
 
-impl<Start: StartSigner, Random: CryptRandom + Send + Sync + 'static> StartupState<Start, Random> {
+impl<Start: StartSigner, Random: CryptRandom + Send + Sync + 'static, Recipient: RecipientProvider>
+    StartupState<Start, Random, Recipient>
+{
     fn start(&mut self, accounts: Vec<Account>) -> Result<(), Box<dyn Error>> {
         let start = self.start.take().ok_or("Start signer not set")?;
         let sender = start.start(accounts)?;
@@ -44,26 +90,31 @@ impl<Start: StartSigner, Random: CryptRandom + Send + Sync + 'static> StartupSta
     }
 }
 
-pub struct DefaultStartupService<Start, Random> {
-    state: Arc<Mutex<StartupState<Start, Random>>>,
+pub struct DefaultStartupService<Start, Random, Recipient> {
+    state: Arc<Mutex<StartupState<Start, Random, Recipient>>>,
 }
 
-impl<Start, Random> DefaultStartupService<Start, Random> {
-    pub fn new(wallet: Nep6Wallet, crypt_random: Random, start: Start) -> Self {
+impl<Start, Random, Recipient> DefaultStartupService<Start, Random, Recipient> {
+    pub fn new(wallet: Nep6Wallet, crypt_random: Random, start: Start, recipient: Recipient) -> Self {
         Self {
             state: Arc::new(Mutex::new(StartupState {
                 wallet,
                 crypt_random,
                 shared_secret: None,
                 start: Some(start),
+                recipient,
+                recipient_attestation_prepared: false,
             })),
         }
     }
 }
 
 #[async_trait]
-impl<Start: StartSigner, Random: CryptRandom + Send + Sync + 'static> StartupService
-    for DefaultStartupService<Start, Random>
+impl<
+        Start: StartSigner,
+        Random: CryptRandom + Send + Sync + 'static,
+        Recipient: RecipientProvider,
+    > StartupService for DefaultStartupService<Start, Random, Recipient>
 {
     async fn diffie_hellman(
         &self,
@@ -74,7 +125,7 @@ impl<Start: StartSigner, Random: CryptRandom + Send + Sync + 'static> StartupSer
         let blob_public_key = p256::PublicKey::from_sec1_bytes(blob_public_key)
             .map_err(|_err| tonic::Status::invalid_argument("Invalid blob ephemeral public key"))?;
 
-        let mut state = self.state.lock().unwrap();
+        let mut state = lock_state(&self.state)?;
         if state.shared_secret.is_some() {
             return Err(tonic::Status::already_exists("Key has been exchanged"));
         }
@@ -111,7 +162,7 @@ impl<Start: StartSigner, Random: CryptRandom + Send + Sync + 'static> StartupSer
             return Err(tonic::Status::invalid_argument("Invalid nonce"));
         }
 
-        let mut state = self.state.lock().unwrap();
+        let mut state = lock_state(&self.state)?;
         if state.start.is_none() {
             return Err(tonic::Status::failed_precondition("Start signer not set"));
         }
@@ -124,11 +175,11 @@ impl<Start: StartSigner, Random: CryptRandom + Send + Sync + 'static> StartupSer
 
         let key: Key<Aes256Gcm> = (*shared_secret).into();
         let cipher = Aes256Gcm::new(&key);
-        let nonce = Nonce::from_slice(&req.nonce.as_ref());
+        let nonce = Nonce::from_slice(req.nonce.as_ref());
 
         let wallet_passphrase = cipher
-            .decrypt(&nonce, req.encrypted_wallet_passphrase.as_slice())
-            .map(|x| Zeroizing::new(x))
+            .decrypt(nonce, req.encrypted_wallet_passphrase.as_slice())
+            .map(Zeroizing::new)
             .map_err(|_err| tonic::Status::invalid_argument("Invalid encrypted data or nonce"))?;
 
         let accounts = state
@@ -143,6 +194,80 @@ impl<Start: StartSigner, Random: CryptRandom + Send + Sync + 'static> StartupSer
             .map_err(|err| tonic::Status::internal(format!("Start signer error: {}", err)))?;
 
         Ok(tonic::Response::new(StartSignerResponse {}))
+    }
+
+    async fn get_kms_recipient_attestation(
+        &self,
+        _req: tonic::Request<GetKmsRecipientAttestationRequest>,
+    ) -> Result<tonic::Response<GetKmsRecipientAttestationResponse>, tonic::Status> {
+        let mut state = lock_state(&self.state)?;
+
+        if state.start.is_none() {
+            return Err(tonic::Status::failed_precondition("Start signer not set"));
+        }
+
+        let attestation_document = state
+            .recipient
+            .prepare_attestation_document()
+            .map_err(|err| {
+                tonic::Status::internal(format!("Prepare recipient attestation error: {}", err))
+            })?;
+
+        state.recipient_attestation_prepared = true;
+
+        Ok(tonic::Response::new(GetKmsRecipientAttestationResponse {
+            attestation_document,
+        }))
+    }
+
+    async fn start_signer_with_recipient_ciphertext(
+        &self,
+        req: tonic::Request<StartSignerWithRecipientCiphertextRequest>,
+    ) -> Result<tonic::Response<StartSignerWithRecipientCiphertextResponse>, tonic::Status> {
+        let req = req.into_inner();
+        if req.ciphertext_for_recipient.is_empty() {
+            return Err(tonic::Status::invalid_argument(
+                "ciphertext_for_recipient is required",
+            ));
+        }
+
+        let mut state = lock_state(&self.state)?;
+        if state.start.is_none() {
+            return Err(tonic::Status::failed_precondition("Start signer not set"));
+        }
+
+        if !state.recipient_attestation_prepared {
+            return Err(tonic::Status::failed_precondition(
+                "Recipient attestation not prepared",
+            ));
+        }
+
+        let wallet_passphrase = state
+            .recipient
+            .decrypt_ciphertext_for_recipient(req.ciphertext_for_recipient.as_slice())
+            .map_err(|err| {
+                tonic::Status::invalid_argument(format!(
+                    "Invalid recipient ciphertext or attestation session: {}",
+                    err
+                ))
+            })?;
+
+        let accounts = state
+            .wallet
+            .decrypt_accounts(wallet_passphrase.as_slice())
+            .map_err(|err| {
+                tonic::Status::invalid_argument(format!("Invalid wallet or passphrase: {}", err))
+            })?;
+
+        let _ = state
+            .start(accounts)
+            .map_err(|err| tonic::Status::internal(format!("Start signer error: {}", err)))?;
+
+        state.recipient_attestation_prepared = false;
+
+        Ok(tonic::Response::new(
+            StartSignerWithRecipientCiphertextResponse {},
+        ))
     }
 }
 
@@ -161,6 +286,55 @@ mod tests {
         }
     }
 
+    struct MockRecipientProvider {
+        passphrase: Vec<u8>,
+        prepared: bool,
+    }
+
+    impl RecipientProvider for MockRecipientProvider {
+        fn prepare_attestation_document(&mut self) -> Result<Vec<u8>, Box<dyn Error>> {
+            self.prepared = true;
+            Ok(vec![0xAA, 0xBB, 0xCC])
+        }
+
+        fn decrypt_ciphertext_for_recipient(
+            &mut self,
+            _ciphertext_for_recipient: &[u8],
+        ) -> Result<Zeroizing<Vec<u8>>, Box<dyn Error>> {
+            if !self.prepared {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::PermissionDenied,
+                    "attestation not prepared",
+                )
+                .into());
+            }
+            Ok(Zeroizing::new(self.passphrase.clone()))
+        }
+    }
+
+    fn test_wallet() -> Nep6Wallet {
+        let json = r#"{
+            "name": "xyz",
+            "version": "3.0",
+            "scrypt": { "n": 64, "r": 2, "p": 2 },
+            "accounts": [
+                {
+                    "address": "NUz6PKTAM7NbPJzkKJFNay3VckQtcDkgWo",
+                    "label": null,
+                    "isdefault": true,
+                    "lock": false,
+                    "key": "6PYWucwbu5pQV9j1wq9kyb571qxUhqDK6vcTsGQtoJXuErzhfptc72RdGF",
+                    "contract": {
+                        "script": "DCECb/A7lJJBzh2t1DUZ5pYOCoW0GmmgXDKBA6orzhWUyhZBVuezJw==",
+                        "deployed": false,
+                        "parameters": [{"name": "signature", "type": "Signature"}]
+                    }
+                }
+            ]
+        }"#;
+        serde_json::from_str::<Nep6Wallet>(json).expect("wallet parse should succeed")
+    }
+
     #[tokio::test]
     async fn test_diffie_hellman() {
         let wallet = Nep6Wallet {
@@ -174,7 +348,12 @@ mod tests {
             .expect("Generate random blob keypair should be OK");
 
         let blob_public_key = blob_keypair.public_key().to_compressed();
-        let startup_service = DefaultStartupService::new(wallet, EnvCryptRandom, MockStartSigner);
+        let startup_service = DefaultStartupService::new(
+            wallet,
+            EnvCryptRandom,
+            MockStartSigner,
+            UnsupportedRecipientProvider,
+        );
         let req = DiffieHellmanRequest {
             blob_ephemeral_public_key: blob_public_key.into(),
         };
@@ -202,5 +381,70 @@ mod tests {
         let state = startup_service.state.lock().unwrap();
         let shared_secret2 = state.shared_secret.clone().unwrap();
         assert_eq!(shared_secret1, *shared_secret2);
+    }
+
+    #[tokio::test]
+    async fn test_start_signer_with_recipient_ciphertext_requires_attestation() {
+        let startup_service = DefaultStartupService::new(
+            test_wallet(),
+            EnvCryptRandom,
+            MockStartSigner,
+            MockRecipientProvider {
+                passphrase: b"xyz".to_vec(),
+                prepared: false,
+            },
+        );
+
+        let req = StartSignerWithRecipientCiphertextRequest {
+            ciphertext_for_recipient: vec![0x01],
+        };
+        let err = startup_service
+            .start_signer_with_recipient_ciphertext(tonic::Request::new(req))
+            .await
+            .expect_err("must fail when attestation is not prepared");
+        assert_eq!(err.code(), tonic::Code::FailedPrecondition);
+        assert!(err.message().contains("Recipient attestation not prepared"));
+    }
+
+    #[tokio::test]
+    async fn test_start_signer_with_recipient_ciphertext_success() {
+        let startup_service = DefaultStartupService::new(
+            test_wallet(),
+            EnvCryptRandom,
+            MockStartSigner,
+            MockRecipientProvider {
+                passphrase: b"xyz".to_vec(),
+                prepared: false,
+            },
+        );
+
+        let att = startup_service
+            .get_kms_recipient_attestation(tonic::Request::new(
+                GetKmsRecipientAttestationRequest {},
+            ))
+            .await
+            .expect("get attestation should succeed")
+            .into_inner();
+        assert!(!att.attestation_document.is_empty());
+
+        startup_service
+            .start_signer_with_recipient_ciphertext(tonic::Request::new(
+                StartSignerWithRecipientCiphertextRequest {
+                    ciphertext_for_recipient: vec![0x02, 0x03],
+                },
+            ))
+            .await
+            .expect("start signer should succeed");
+
+        let err = startup_service
+            .start_signer_with_recipient_ciphertext(tonic::Request::new(
+                StartSignerWithRecipientCiphertextRequest {
+                    ciphertext_for_recipient: vec![0x02, 0x03],
+                },
+            ))
+            .await
+            .expect_err("second start must fail");
+        assert_eq!(err.code(), tonic::Code::FailedPrecondition);
+        assert!(err.message().contains("Start signer not set"));
     }
 }

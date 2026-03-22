@@ -24,25 +24,25 @@ pub trait Aes256EcbCipher {
 
 impl Aes256EcbCipher for [u8] {
     fn aes256_ecb_encrypt_aligned(&self, data: &mut [u8]) -> Result<(), AesEcbError> {
-        let cipher = Aes256::new_from_slice(self.as_ref()).expect("aes256 key length is 32-bytes");
-        if data.len() % AES_BLOCK_SIZE != 0 {
+        let cipher = Aes256::new_from_slice(self).expect("aes256 key length is 32-bytes");
+        if !data.len().is_multiple_of(AES_BLOCK_SIZE) {
             return Err(AesEcbError::InvalidDataLength);
         }
 
         data.chunks_mut(AES_BLOCK_SIZE)
-            .map(|chunk| GenericArray::from_mut_slice(chunk))
+            .map(GenericArray::from_mut_slice)
             .for_each(|block| cipher.encrypt_block(block));
         Ok(())
     }
 
     fn aes256_ecb_decrypt_aligned(&self, data: &mut [u8]) -> Result<(), AesEcbError> {
-        let cipher = Aes256::new_from_slice(self.as_ref()).expect("aes256 key length is 32-bytes");
-        if data.len() % AES_BLOCK_SIZE != 0 {
+        let cipher = Aes256::new_from_slice(self).expect("aes256 key length is 32-bytes");
+        if !data.len().is_multiple_of(AES_BLOCK_SIZE) {
             return Err(AesEcbError::InvalidDataLength);
         }
 
         data.chunks_mut(AES_BLOCK_SIZE)
-            .map(|chunk| GenericArray::from_mut_slice(chunk))
+            .map(GenericArray::from_mut_slice)
             .for_each(|block| cipher.decrypt_block(block));
         Ok(())
     }

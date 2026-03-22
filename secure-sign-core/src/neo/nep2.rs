@@ -67,7 +67,7 @@ impl TryToNep2Key for Keypair {
 
         let sk = self.private_key().as_be_bytes();
         let mut key = xor_array::<KEY_SIZE>(sk, &derived[..KEY_SIZE]);
-        let _ = derived[KEY_SIZE..]
+        derived[KEY_SIZE..]
             .aes256_ecb_encrypt_aligned(key.as_mut_slice())
             .expect("`aes256_ecb_encrypt_aligned` should be ok");
 
@@ -126,7 +126,7 @@ impl TryFromNep2Key for Keypair {
             .expect("default nep2-key params should be ok");
 
         let mut encrypted: [u8; KEY_SIZE] = raw[7..].to_array();
-        let _ = derived[KEY_SIZE..]
+        derived[KEY_SIZE..]
             .aes256_ecb_decrypt_aligned(encrypted.as_mut_slice())
             .expect("`aes256_ecb_decrypt_aligned` should be ok");
 
@@ -154,7 +154,7 @@ fn xor_array<const N: usize>(left: &[u8], right: &[u8]) -> Zeroizing<[u8; N]> {
         core::panic!("source length {} != dest length {}", left.len(), N);
     }
 
-    left.into_iter()
+    left.iter()
         .enumerate()
         .for_each(|(idx, v)| dest[idx] = v ^ right[idx]);
     dest

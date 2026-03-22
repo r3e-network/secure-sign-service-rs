@@ -28,17 +28,31 @@ pub(crate) struct MockCmd {
     #[arg(long, help = "The vsock context identifier")]
     pub cid: u32,
 
-    #[arg(long, help = "The passphrase of the wallet")]
-    pub passphrase: String,
+    #[arg(
+        long,
+        help = "The passphrase of the wallet (reads from stdin if omitted)",
+        default_value = None,
+    )]
+    pub passphrase: Option<String>,
 }
 
 impl MockCmd {
+    fn read_passphrase(&self) -> Result<String, Box<dyn Error>> {
+        match &self.passphrase {
+            Some(p) => Ok(p.clone()),
+            None => rpassword::prompt_password("The password of the wallet: ")
+                .map_err(|err| format!("Failed to read passphrase: {}", err).into()),
+        }
+    }
+
     pub fn run(&self) -> Result<oneshot::Sender<()>, Box<dyn Error>> {
+        let passphrase = self.read_passphrase()?;
+
         #[allow(unused)]
         let accounts = {
             let content = std::fs::read_to_string(&self.wallet)?;
             let wallet: Nep6Wallet = serde_json::from_str(&content)?;
-            wallet.decrypt_accounts(self.passphrase.as_bytes())?
+            wallet.decrypt_accounts(passphrase.as_bytes())?
         };
 
         #[cfg(feature = "vsock")]

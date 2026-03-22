@@ -10,6 +10,10 @@ pub trait BinWriter {
     fn write<T: AsRef<[u8]>>(&mut self, value: T);
 
     fn len(&self) -> usize;
+
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
 }
 
 impl BinWriter for BytesMut {
@@ -34,28 +38,28 @@ pub trait BinEncoder {
 impl BinEncoder for u8 {
     #[inline]
     fn encode_bin(&self, w: &mut impl BinWriter) {
-        w.write(&self.to_le_bytes());
+        w.write(self.to_le_bytes());
     }
 }
 
 impl BinEncoder for u16 {
     #[inline]
     fn encode_bin(&self, w: &mut impl BinWriter) {
-        w.write(&self.to_le_bytes());
+        w.write(self.to_le_bytes());
     }
 }
 
 impl BinEncoder for u32 {
     #[inline]
     fn encode_bin(&self, w: &mut impl BinWriter) {
-        w.write(&self.to_le_bytes());
+        w.write(self.to_le_bytes());
     }
 }
 
 impl BinEncoder for u64 {
     #[inline]
     fn encode_bin(&self, w: &mut impl BinWriter) {
-        w.write(&self.to_le_bytes());
+        w.write(self.to_le_bytes());
     }
 }
 
