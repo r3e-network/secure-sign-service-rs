@@ -20,8 +20,24 @@ message StartSignerRequest {
 
 message StartSignerResponse { }
 
+message GetKmsRecipientAttestationRequest { }
+
+message GetKmsRecipientAttestationResponse {
+    bytes attestation_document = 1;
+}
+
+message StartSignerWithRecipientCiphertextRequest {
+    bytes ciphertext_for_recipient = 1;
+}
+
+message StartSignerWithRecipientCiphertextResponse { }
+
 service StartupService {
     rpc DiffieHellman(DiffieHellmanRequest) returns (DiffieHellmanResponse) {}
 
     rpc StartSigner(StartSignerRequest) returns (StartSignerResponse) {}
+
+    rpc GetKmsRecipientAttestation(GetKmsRecipientAttestationRequest) returns (GetKmsRecipientAttestationResponse) {}
+
+    rpc StartSignerWithRecipientCiphertext(StartSignerWithRecipientCiphertextRequest) returns (StartSignerWithRecipientCiphertextResponse) {}
 }

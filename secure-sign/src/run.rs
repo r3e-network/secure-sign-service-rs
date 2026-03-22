@@ -10,11 +10,15 @@ use secure_sign_core::neo::nep6::Nep6Wallet;
 use secure_sign_core::random::EnvCryptRandom;
 use secure_sign_rpc::startpb::startup_service_server::StartupServiceServer;
 use secure_sign_rpc::startup::DefaultStartupService;
+#[cfg(not(feature = "vsock"))]
+use secure_sign_rpc::startup::UnsupportedRecipientProvider;
 
 use tokio::sync::oneshot;
 use tonic::transport::Server;
 
 use crate::startup::DefaultStartSigner;
+#[cfg(feature = "vsock")]
+use crate::startup::NitroRecipientProvider;
 
 #[cfg(all(feature = "vsock", feature = "tcp"))]
 compile_error!("vsock and tcp cannot be both enabled");
@@ -58,7 +62,12 @@ impl RunCmd {
     #[cfg(feature = "vsock")]
     fn run_vsock(&self, wallet: Nep6Wallet) -> Result<oneshot::Sender<()>, Box<dyn Error>> {
         let startup = DefaultStartSigner::with_vsock(self.cid, self.port);
-        let service = DefaultStartupService::new(wallet, EnvCryptRandom, startup);
+        let service = DefaultStartupService::new(
+            wallet,
+            EnvCryptRandom,
+            startup,
+            NitroRecipientProvider::new(),
+        );
         let (tx, rx) = oneshot::channel::<()>();
 
         let incoming = secure_sign_rpc::vsock::vsock_incoming(self.cid, self.port + 1)
@@ -80,7 +89,12 @@ impl RunCmd {
     #[cfg(not(feature = "vsock"))]
     fn run_tcp(&self, wallet: Nep6Wallet) -> Result<oneshot::Sender<()>, Box<dyn Error>> {
         let startup = DefaultStartSigner::with_tcp(self.port);
-        let service = DefaultStartupService::new(wallet, EnvCryptRandom, startup);
+        let service = DefaultStartupService::new(
+            wallet,
+            EnvCryptRandom,
+            startup,
+            UnsupportedRecipientProvider,
+        );
         let (tx, rx) = oneshot::channel::<()>();
 
         let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), self.port + 1);

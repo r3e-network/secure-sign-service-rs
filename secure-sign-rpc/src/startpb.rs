@@ -18,6 +18,20 @@ pub struct StartSignerRequest {
 }
 #[derive(Clone, Copy, PartialEq, ::prost::Message)]
 pub struct StartSignerResponse {}
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct GetKmsRecipientAttestationRequest {}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct GetKmsRecipientAttestationResponse {
+    #[prost(bytes = "vec", tag = "1")]
+    pub attestation_document: ::prost::alloc::vec::Vec<u8>,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct StartSignerWithRecipientCiphertextRequest {
+    #[prost(bytes = "vec", tag = "1")]
+    pub ciphertext_for_recipient: ::prost::alloc::vec::Vec<u8>,
+}
+#[derive(Clone, Copy, PartialEq, ::prost::Message)]
+pub struct StartSignerWithRecipientCiphertextResponse {}
 /// Generated client implementations.
 pub mod startup_service_client {
     #![allow(
@@ -157,6 +171,66 @@ pub mod startup_service_client {
                 .insert(GrpcMethod::new("startpb.StartupService", "StartSigner"));
             self.inner.unary(req, path, codec).await
         }
+        pub async fn get_kms_recipient_attestation(
+            &mut self,
+            request: impl tonic::IntoRequest<super::GetKmsRecipientAttestationRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::GetKmsRecipientAttestationResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/startpb.StartupService/GetKmsRecipientAttestation",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "startpb.StartupService",
+                        "GetKmsRecipientAttestation",
+                    ),
+                );
+            self.inner.unary(req, path, codec).await
+        }
+        pub async fn start_signer_with_recipient_ciphertext(
+            &mut self,
+            request: impl tonic::IntoRequest<
+                super::StartSignerWithRecipientCiphertextRequest,
+            >,
+        ) -> std::result::Result<
+            tonic::Response<super::StartSignerWithRecipientCiphertextResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/startpb.StartupService/StartSignerWithRecipientCiphertext",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(
+                    GrpcMethod::new(
+                        "startpb.StartupService",
+                        "StartSignerWithRecipientCiphertext",
+                    ),
+                );
+            self.inner.unary(req, path, codec).await
+        }
     }
 }
 /// Generated server implementations.
@@ -184,6 +258,20 @@ pub mod startup_service_server {
             request: tonic::Request<super::StartSignerRequest>,
         ) -> std::result::Result<
             tonic::Response<super::StartSignerResponse>,
+            tonic::Status,
+        >;
+        async fn get_kms_recipient_attestation(
+            &self,
+            request: tonic::Request<super::GetKmsRecipientAttestationRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::GetKmsRecipientAttestationResponse>,
+            tonic::Status,
+        >;
+        async fn start_signer_with_recipient_ciphertext(
+            &self,
+            request: tonic::Request<super::StartSignerWithRecipientCiphertextRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::StartSignerWithRecipientCiphertextResponse>,
             tonic::Status,
         >;
     }
@@ -338,6 +426,112 @@ pub mod startup_service_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = StartSignerSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/startpb.StartupService/GetKmsRecipientAttestation" => {
+                    #[allow(non_camel_case_types)]
+                    struct GetKmsRecipientAttestationSvc<T: StartupService>(pub Arc<T>);
+                    impl<
+                        T: StartupService,
+                    > tonic::server::UnaryService<
+                        super::GetKmsRecipientAttestationRequest,
+                    > for GetKmsRecipientAttestationSvc<T> {
+                        type Response = super::GetKmsRecipientAttestationResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<
+                                super::GetKmsRecipientAttestationRequest,
+                            >,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as StartupService>::get_kms_recipient_attestation(
+                                        &inner,
+                                        request,
+                                    )
+                                    .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = GetKmsRecipientAttestationSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/startpb.StartupService/StartSignerWithRecipientCiphertext" => {
+                    #[allow(non_camel_case_types)]
+                    struct StartSignerWithRecipientCiphertextSvc<T: StartupService>(
+                        pub Arc<T>,
+                    );
+                    impl<
+                        T: StartupService,
+                    > tonic::server::UnaryService<
+                        super::StartSignerWithRecipientCiphertextRequest,
+                    > for StartSignerWithRecipientCiphertextSvc<T> {
+                        type Response = super::StartSignerWithRecipientCiphertextResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<
+                                super::StartSignerWithRecipientCiphertextRequest,
+                            >,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as StartupService>::start_signer_with_recipient_ciphertext(
+                                        &inner,
+                                        request,
+                                    )
+                                    .await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = StartSignerWithRecipientCiphertextSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

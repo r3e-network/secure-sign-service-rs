@@ -6,12 +6,15 @@ edition = "2021"
 [dependencies]
 secure-sign-core = { path = "../secure-sign-core", features = ["std"] }
 secure-sign-rpc  = { path = "../secure-sign-rpc" }
+secure-sign-nitro = { path = "../secure-sign-nitro", optional = true }
 
 tokio = { version = "1", features = ["full"] }
 tonic = { version = "0.12" }
 
 hex        = { version = "0.4" }
 serde_json = { version = "1" }
+base64     = { version = "0.22" }
+bytes      = { version = "1" }
 
 log        = { version = "0.4" }
 env_logger = { version = "0.11" }
@@ -23,10 +26,12 @@ rpassword = { version = "7.3" }
 aes-gcm = { version = "0.10" }
 p256    = { version = "0.13", default-features = false, features = ["arithmetic", "ecdsa", "ecdh"]}
 
+rsa  = { version = "0.9", optional = true }
+sha2 = { version = "0.10", optional = true }
+
 # sgx_types = { rev = "v1.1.6", git = "https://github.com/apache/teaclave-sgx-sdk.git", optional = true }
 
 [features]
 tcp   = []
-vsock = []
+vsock = ["dep:secure-sign-nitro", "dep:rsa", "dep:sha2"]
 tools = []
-

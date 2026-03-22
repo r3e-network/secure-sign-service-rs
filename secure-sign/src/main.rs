@@ -8,7 +8,7 @@ mod tools;
 
 use std::error::Error;
 
-use clap::{command, Parser, Subcommand};
+use clap::{Parser, Subcommand};
 use tokio::signal;
 
 #[derive(Subcommand)]
@@ -19,6 +19,8 @@ enum Commands {
     Mock(mock::MockCmd),
     Decrypt(tools::DecryptCmd),
     Status(tools::StatusCmd),
+    RecipientAttestation(tools::RecipientAttestationCmd),
+    StartRecipient(tools::StartRecipientCmd),
 }
 
 #[derive(Parser)]
@@ -43,6 +45,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
         Commands::Mock(mock) => mock.run()?,
         Commands::Decrypt(decrypt) => return decrypt.run().await,
         Commands::Status(status) => return status.run().await,
+        Commands::RecipientAttestation(attestation) => return attestation.run().await,
+        Commands::StartRecipient(start) => return start.run().await,
     };
 
     signal::ctrl_c().await?;

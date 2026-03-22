@@ -10,5 +10,6 @@ aws-nitro-enclaves-nsm-api = { version = "0.4" }
 
 thiserror = { version = "2" }
 zeroize   = { version = "1", features = ["zeroize_derive"] }
+rand_core = { version = "0.6", features = ["std"] }
 
 [features]

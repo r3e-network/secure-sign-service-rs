@@ -21,6 +21,7 @@ aes-gcm = { version = "0.10" }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full"] }
+serde_json = { version = "1" }
 
 [build-dependencies]
 secure-sign-core = { path = "../secure-sign-core", features = ["std"] }
