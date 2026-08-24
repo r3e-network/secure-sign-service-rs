@@ -94,10 +94,11 @@ make vsock
     --cert path/to/certificate.pem
 ```
 
-The build script uses an ephemeral Docker context and removes it on exit, so
-the NEP-6 wallet is never copied into the source tree. The resulting EIF still
-contains the encrypted wallet and must be handled as sensitive infrastructure
-material.
+The build script uses an ephemeral Docker context and a `scratch` runtime image,
+then removes the context on exit. The NEP-6 wallet is never copied into the
+source tree and no shell, package manager, TLS stack, or CA bundle is included
+in the enclave. The resulting EIF still contains the encrypted wallet and must
+be handled as sensitive infrastructure material.
 
 The Nitro command is consensus-only by default. It accepts only Neo N3 mainnet
 magic `860833102`, `dBFT` extensible payloads, recognized N3 consensus message

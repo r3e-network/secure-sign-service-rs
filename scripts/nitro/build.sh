@@ -12,6 +12,12 @@ WALLET=""
 KEY=""
 CERT=""
 
+# SSM Run Command does not guarantee HOME. Nitro CLI needs explicit writable
+# artifacts storage and the package-provided kernel/init blobs to build an EIF.
+export NITRO_CLI_ARTIFACTS="${NITRO_CLI_ARTIFACTS:-${TMPDIR:-/tmp}/nitro-cli-artifacts}"
+export NITRO_CLI_BLOBS="${NITRO_CLI_BLOBS:-/usr/share/nitro_enclaves/blobs}"
+install -d -m 0700 "$NITRO_CLI_ARTIFACTS"
+
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --bin)
