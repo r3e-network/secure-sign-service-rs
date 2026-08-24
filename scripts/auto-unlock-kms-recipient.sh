@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-BASE="/home/ec2-user/neo/secure-sign-service-rs"
-TOOL="$BASE/target/secure-sign-tools"
+BASE="${SIGNER_BASE:-/home/ec2-user/neo/secure-sign-service-rs}"
+TOOL="${SIGNER_TOOL:-$BASE/target/secure-sign-tools}"
 
 CID="${SIGNER_CID:-2345}"
 SERVICE_PORT="${SIGNER_SERVICE_PORT:-9991}"
@@ -10,6 +10,7 @@ STARTUP_PORT="${SIGNER_STARTUP_PORT:-9992}"
 AWS_REGION="${AWS_REGION:-ap-southeast-1}"
 KMS_KEY_ID="${KMS_KEY_ID:-}"
 KMS_CIPHERTEXT_BLOB_PATH="${KMS_CIPHERTEXT_BLOB_PATH:-/home/ec2-user/neo/secure/wallet-passphrase.kms.bin}"
+SIGNER_WALLET_PATH="${SIGNER_WALLET_PATH:-/home/ec2-user/neo/secure/council-wallet.json}"
 TOOL_TIMEOUT="${TOOL_TIMEOUT:-3s}"
 STATUS_CHECK_RETRIES="${STATUS_CHECK_RETRIES:-3}"
 STARTUP_WAIT_RETRIES="${STARTUP_WAIT_RETRIES:-60}"
@@ -33,9 +34,9 @@ fi
 
 PUBKEY="${SIGNER_PUBLIC_KEY:-}"
 if [[ -z "$PUBKEY" ]]; then
-  PUBKEY=$(python3 - <<'PY'
-import base64, json
-s=json.load(open('/home/ec2-user/neo/secure/council-wallet.json'))['accounts'][0]['contract']['script']
+  PUBKEY=$(python3 - "$SIGNER_WALLET_PATH" <<'PY'
+import base64, json, sys
+s=json.load(open(sys.argv[1]))['accounts'][0]['contract']['script']
 b=base64.b64decode(s)
 print(b[2:35].hex())
 PY

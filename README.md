@@ -185,6 +185,11 @@ public key, and durably rejects conflicting prepare/commit or block signatures
 for the same consensus slot. Change-view and recovery messages remain retryable
 because their payloads can legitimately evolve within a view.
 
+For a production installation, set `SIGNER_BASE`, `SIGNER_TOOL`,
+`KMS_CIPHERTEXT_BLOB_PATH`, and `SIGNER_PUBLIC_KEY` in the KMS unlock service.
+When `SIGNER_PUBLIC_KEY` is configured, the parent instance does not need a
+copy of the encrypted wallet after the EIF has been built.
+
 ### Wallet Management Tools
 Decrypt wallet and check account status after server is started (for SGX or AWS Nitro modes):
 ```bash
