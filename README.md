@@ -96,9 +96,11 @@ make vsock
 
 The build script uses an ephemeral Docker context and a `scratch` runtime image,
 then removes the context on exit. The NEP-6 wallet is never copied into the
-source tree and no shell, package manager, TLS stack, or CA bundle is included
-in the enclave. The resulting EIF still contains the encrypted wallet and must
-be handled as sensitive infrastructure material.
+source tree. Only the signer and the OpenSSL CMS runtime required to unwrap the
+AWS KMS `RecipientInfo` response are present; there is no shell, package
+manager, CA bundle, or general-purpose Linux userland. The resulting EIF still
+contains the encrypted wallet and must be handled as sensitive infrastructure
+material.
 
 The Nitro command is consensus-only by default. It accepts only Neo N3 mainnet
 magic `860833102`, `dBFT` extensible payloads, recognized N3 consensus message
