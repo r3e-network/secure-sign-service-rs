@@ -49,5 +49,36 @@ fn children_sha256(off: usize, hashes: &[H256]) -> H256 {
         [&hashes[off], &hashes[off + 1]]
     };
 
-    H256::from_le_bytes(two.iter().slices_sha256().sha256())
+    let first = two.iter().slices_sha256();
+    H256::from_le_bytes(first.sha256())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn repeated_hash(byte: u8) -> H256 {
+        H256::from_le_bytes([byte; 32])
+    }
+
+    fn decoded_hash(value: &str) -> H256 {
+        let mut bytes = [0; 32];
+        hex::decode_to_slice(value, &mut bytes).unwrap();
+        H256::from_le_bytes(bytes)
+    }
+
+    #[test]
+    fn merkle_root_matches_neo_double_sha256() {
+        let empty: [H256; 0] = [];
+        assert_eq!(empty.merkle_sha256(), H256::default());
+        assert_eq!(vec![repeated_hash(1)].merkle_sha256(), repeated_hash(1));
+        assert_eq!(
+            vec![repeated_hash(1), repeated_hash(2)].merkle_sha256(),
+            decoded_hash("39ce20bede82c96b8908bec4a157b09c549b3db90b9b474bda9ae9b9030310b4")
+        );
+        assert_eq!(
+            vec![repeated_hash(1), repeated_hash(2), repeated_hash(3)].merkle_sha256(),
+            decoded_hash("223e023fadf1f053df26988871f893c821c28edf77d64a955e6c2a02d547bdac")
+        );
+    }
 }
