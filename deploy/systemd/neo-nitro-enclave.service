@@ -1,0 +1,21 @@
+[Unit]
+Description=Neo council Nitro Enclave
+Requires=nitro-enclaves-allocator.service
+After=nitro-enclaves-allocator.service
+Before=neo-nitro-unlock.service
+PartOf=neo-nitro-signer.target
+StartLimitIntervalSec=600
+StartLimitBurst=3
+
+[Service]
+Type=oneshot
+RemainAfterExit=true
+UMask=0077
+ExecStartPre=-/usr/bin/nitro-cli terminate-enclave --enclave-name neo-council-signer
+ExecStart=/usr/bin/nitro-cli run-enclave --enclave-name neo-council-signer --cpu-count 1 --memory 1024 --enclave-cid 2345 --eif-path /opt/neo-signer/enclave/council-signer.eif
+ExecStop=-/usr/bin/nitro-cli terminate-enclave --enclave-name neo-council-signer
+TimeoutStartSec=120
+TimeoutStopSec=30
+
+[Install]
+WantedBy=neo-nitro-signer.target

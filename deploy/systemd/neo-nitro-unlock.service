@@ -1,0 +1,40 @@
+[Unit]
+Description=Unlock Neo council signer with attested KMS recipient
+Requires=neo-nitro-enclave.service
+After=neo-nitro-enclave.service network-online.target
+Before=neo-nitro-gateway.service
+PartOf=neo-nitro-signer.target
+StartLimitIntervalSec=600
+StartLimitBurst=5
+
+[Service]
+Type=oneshot
+User=neo-signer
+Group=neo-signer
+Environment=HOME=/var/lib/neo-signer
+EnvironmentFile=/etc/neo-signer/signer.env
+ExecStart=/opt/neo-signer/bin/auto-unlock-kms-recipient.sh
+RemainAfterExit=true
+Restart=on-failure
+RestartSec=10
+TimeoutStartSec=180
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_VSOCK
+ReadWritePaths=/var/lib/neo-signer
+MemoryMax=256M
+TasksMax=64
+
+[Install]
+WantedBy=neo-nitro-signer.target

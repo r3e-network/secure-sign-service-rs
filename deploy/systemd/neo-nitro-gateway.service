@@ -1,0 +1,38 @@
+[Unit]
+Description=WireGuard-bound Neo council signing gateway
+Requires=neo-nitro-unlock.service wg-quick@wg-signer.service
+After=neo-nitro-unlock.service wg-quick@wg-signer.service
+PartOf=neo-nitro-signer.target
+StartLimitIntervalSec=600
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=neo-signer
+Group=neo-signer
+EnvironmentFile=/etc/neo-signer/signer.env
+ExecStart=/opt/neo-signer/bin/run-gateway.sh
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=15
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_VSOCK
+ReadWritePaths=/var/lib/neo-signer
+MemoryMax=192M
+CPUQuota=50%
+TasksMax=128
+
+[Install]
+WantedBy=neo-nitro-signer.target

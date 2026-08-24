@@ -1,0 +1,8 @@
+[Unit]
+Description=Neo council Nitro signer
+Requires=neo-nitro-enclave.service neo-nitro-unlock.service neo-nitro-gateway.service
+After=network-online.target wg-quick@wg-signer.service
+Wants=network-online.target wg-quick@wg-signer.service
+
+[Install]
+WantedBy=multi-user.target
