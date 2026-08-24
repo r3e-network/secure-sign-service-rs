@@ -34,23 +34,45 @@ use zeroize::Zeroizing;
 pub struct DefaultStartSigner {
     cid: u32, // 0 if tcp
     port: u16,
+    consensus_network: Option<u32>,
 }
 
 impl DefaultStartSigner {
     #[allow(unused)]
     pub fn with_vsock(cid: u32, port: u16) -> Self {
-        Self { cid, port }
+        Self {
+            cid,
+            port,
+            consensus_network: None,
+        }
+    }
+
+    #[cfg(feature = "vsock")]
+    pub fn with_vsock_consensus(cid: u32, port: u16, network: u32) -> Self {
+        Self {
+            cid,
+            port,
+            consensus_network: Some(network),
+        }
     }
 
     #[allow(unused)]
     pub fn with_tcp(port: u16) -> Self {
-        Self { cid: 0, port }
+        Self {
+            cid: 0,
+            port,
+            consensus_network: None,
+        }
     }
 }
 
 impl StartSigner for DefaultStartSigner {
     fn start(self, accounts: Vec<Account>) -> Result<oneshot::Sender<()>, Box<dyn Error>> {
-        let sign_service = DefaultSignService::new(Signer::new(accounts));
+        let signer = Signer::new(accounts);
+        let sign_service = match self.consensus_network {
+            Some(network) => DefaultSignService::new_consensus(signer, network),
+            None => DefaultSignService::new(signer),
+        };
         let router = Server::builder()
             .accept_http1(true)
             .add_service(SecureSignServer::new(sign_service));

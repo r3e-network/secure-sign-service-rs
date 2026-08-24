@@ -1,11 +1,12 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-set -e
+set -euo pipefail
 
 # parse arguments:
 # --wallet nep6-wallet-path.json [--bin signer-service-binary-path] [--image docker-image-name]
 # [--private-key private-key, or --key] [--signing-certificate signing-certificate, or --cert]
-BIN="../../target/secure-sign-vsock"
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+BIN="${SCRIPT_DIR}/../../target/secure-sign-vsock"
 IMAGE="secure-sign-nitro"
 WALLET=""
 KEY=""
@@ -14,22 +15,27 @@ CERT=""
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --bin)
+            [[ $# -ge 2 ]] || { echo "Missing value for --bin" >&2; exit 2; }
             BIN=$2
             shift 2
             ;;
         --wallet)
+            [[ $# -ge 2 ]] || { echo "Missing value for --wallet" >&2; exit 2; }
             WALLET=$2
             shift 2
             ;;
         --image)
+            [[ $# -ge 2 ]] || { echo "Missing value for --image" >&2; exit 2; }
             IMAGE=$2
             shift 2
             ;;
         --key|--private-key)
+            [[ $# -ge 2 ]] || { echo "Missing value for $1" >&2; exit 2; }
             KEY=$2
             shift 2
             ;;
         --cert|--signing-certificate)
+            [[ $# -ge 2 ]] || { echo "Missing value for $1" >&2; exit 2; }
             CERT=$2
             shift 2
             ;;
@@ -43,34 +49,56 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-cp $BIN .
-cp $WALLET .
-
-# get file name from BIN and WALLET
-BIN_NAME=$(basename $BIN)
-WALLET_NAME=$(basename $WALLET)
-if [ ! -f "$BIN_NAME" ] || [ ! -f "$WALLET_NAME" ]; then
-    echo "Error: Required files(signer-service-binary file or nep6-wallet file) not found"
-    exit 1
+if [[ -z "$WALLET" || ! -f "$WALLET" ]]; then
+    echo "Error: --wallet must reference an existing NEP-6 wallet" >&2
+    exit 2
+fi
+if [[ ! -f "$BIN" ]]; then
+    echo "Error: signer binary not found: $BIN" >&2
+    exit 2
+fi
+if [[ -n "$KEY" && ! -f "$KEY" ]]; then
+    echo "Error: signing private key not found: $KEY" >&2
+    exit 2
+fi
+if [[ -n "$CERT" && ! -f "$CERT" ]]; then
+    echo "Error: signing certificate not found: $CERT" >&2
+    exit 2
+fi
+if [[ -n "$CERT" && -z "$KEY" ]]; then
+    echo "Error: --cert requires --key" >&2
+    exit 2
 fi
 
-# build with ARG BIN and WALLET
-echo "Building docker image $IMAGE with binary $BIN_NAME and wallet $WALLET_NAME"
-docker build --build-arg BIN=$BIN_NAME --build-arg WALLET=$WALLET_NAME -t $IMAGE .
+BUILD_CONTEXT=$(mktemp -d "${TMPDIR:-/tmp}/secure-sign-nitro.XXXXXX")
+cleanup() {
+    rm -rf -- "$BUILD_CONTEXT"
+}
+trap cleanup EXIT INT TERM
 
-# rm previous enclave image file if exists
-if [ -f "$IMAGE.eif" ]; then
-    rm $IMAGE.eif
-fi
+install -m 0755 "$BIN" "$BUILD_CONTEXT/secure-sign-vsock"
+install -m 0600 "$WALLET" "$BUILD_CONTEXT/nep6-wallet.json"
+install -m 0644 "$SCRIPT_DIR/Dockerfile" "$BUILD_CONTEXT/Dockerfile"
 
-if [ ! -z "$KEY" ]; then
-    if [ ! -z "$CERT" ]; then
-        nitro-cli build-enclave --docker-uri $IMAGE:latest --output-file $IMAGE.eif --private-key $KEY --signing-certificate $CERT
+echo "Building Docker image $IMAGE from an ephemeral context"
+docker build \
+    --build-arg BIN=secure-sign-vsock \
+    --build-arg WALLET=nep6-wallet.json \
+    --tag "$IMAGE" \
+    "$BUILD_CONTEXT"
+
+OUTPUT_EIF="${PWD}/${IMAGE}.eif"
+rm -f -- "$OUTPUT_EIF"
+
+if [[ -n "$KEY" ]]; then
+    if [[ -n "$CERT" ]]; then
+        nitro-cli build-enclave --docker-uri "$IMAGE:latest" --output-file "$OUTPUT_EIF" --private-key "$KEY" --signing-certificate "$CERT"
     else
-        nitro-cli build-enclave --docker-uri $IMAGE:latest --output-file $IMAGE.eif --private-key $KEY
+        nitro-cli build-enclave --docker-uri "$IMAGE:latest" --output-file "$OUTPUT_EIF" --private-key "$KEY"
     fi
 else
-    nitro-cli build-enclave --docker-uri $IMAGE:latest --output-file $IMAGE.eif
+    nitro-cli build-enclave --docker-uri "$IMAGE:latest" --output-file "$OUTPUT_EIF"
 fi
 
-docker rmi $IMAGE
+docker image rm "$IMAGE" >/dev/null
+echo "Built $OUTPUT_EIF"

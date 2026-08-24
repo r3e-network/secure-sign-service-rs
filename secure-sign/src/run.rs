@@ -6,6 +6,8 @@ use std::error::Error;
 #[allow(unused_imports)]
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
+#[cfg(feature = "vsock")]
+use secure_sign_core::neo::consensus::NEO_N3_MAINNET_MAGIC;
 use secure_sign_core::neo::nep6::Nep6Wallet;
 use secure_sign_core::random::EnvCryptRandom;
 use secure_sign_rpc::startpb::startup_service_server::StartupServiceServer;
@@ -43,6 +45,14 @@ pub(crate) struct RunCmd {
         default_value = "2345"
     )]
     pub cid: u32,
+
+    #[cfg(feature = "vsock")]
+    #[arg(
+        long,
+        help = "The only Neo network magic this consensus signer may sign",
+        default_value_t = NEO_N3_MAINNET_MAGIC
+    )]
+    pub network: u32,
 }
 
 impl RunCmd {
@@ -61,7 +71,7 @@ impl RunCmd {
 
     #[cfg(feature = "vsock")]
     fn run_vsock(&self, wallet: Nep6Wallet) -> Result<oneshot::Sender<()>, Box<dyn Error>> {
-        let startup = DefaultStartSigner::with_vsock(self.cid, self.port);
+        let startup = DefaultStartSigner::with_vsock_consensus(self.cid, self.port, self.network);
         let service = DefaultStartupService::new(
             wallet,
             EnvCryptRandom,

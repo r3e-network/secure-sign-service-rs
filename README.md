@@ -76,6 +76,9 @@ make sgx WALLET_PATH=path/to/your/wallet.json SIGN_KEY=path/to/sgx_sign_private_
 # First build the Vsock binary
 make vsock
 
+# Linux reports ARM64 as aarch64; make vsock selects the matching MUSL target.
+# On a 2-vCPU Graviton parent, run.sh defaults to one enclave vCPU.
+
 # Then build the enclave image
 ./scripts/nitro/build.sh \
     --wallet path/to/your/wallet.json \
@@ -89,6 +92,16 @@ make vsock
     --key path/to/private-key.pem \
     --cert path/to/certificate.pem
 ```
+
+The build script uses an ephemeral Docker context and removes it on exit, so
+the NEP-6 wallet is never copied into the source tree. The resulting EIF still
+contains the encrypted wallet and must be handled as sensitive infrastructure
+material.
+
+The Nitro command is consensus-only by default. It accepts only Neo N3 mainnet
+magic `860833102`, `dBFT` extensible payloads, recognized N3 consensus message
+types, and a single signer matching the payload sender. Use `--network` when
+building a deliberately separate signer for another Neo network.
 
 ## Usage
 

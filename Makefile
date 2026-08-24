@@ -1,12 +1,12 @@
 # Copyright @ 2025 - Present, R3E Network
 # All Rights Reserved
 
-ARCH=$(shell uname -m)
+ARCH ?= $(shell uname -m)
 
 # rustup target add x86_64-unknown-linux-musl or rustup target add aarch64-unknown-linux-musl
-ifeq ($(ARCH), x86_64)
+ifneq ($(filter $(ARCH),x86_64 amd64),)
 	VSOCK_TARGET=x86_64-unknown-linux-musl
-else ifeq ($(ARCH), arm64)
+else ifneq ($(filter $(ARCH),aarch64 arm64),)
 	VSOCK_TARGET=aarch64-unknown-linux-musl
 else
 	$(error Unsupported architecture: $(ARCH))
@@ -25,8 +25,8 @@ vsock:
 WALLET_PATH ?= nep6_wallet.json
 SIGN_KEY ?= sgx_sign_private_key.pem
 
-WALLET_PATH := $(shell realpath $(WALLET_PATH))
-SIGN_KEY := $(shell realpath $(SIGN_KEY))
+WALLET_PATH := $(abspath $(WALLET_PATH))
+SIGN_KEY := $(abspath $(SIGN_KEY))
 sgx:
 	cd secure-sign-sgx-enclave && ./build.sh --wallet-path $(WALLET_PATH) --sign-key $(SIGN_KEY)
 	cd secure-sign-sgx && ./build.sh --release
@@ -52,5 +52,5 @@ help:
 	@echo "  help  -- show this help message"
 	@echo ""
 	@echo "Prerequisites: "
-	@echo "  - for vsock: rustup target add x86_64-unknown-linux-musl"
+	@echo "  - for vsock: rustup target add x86_64-unknown-linux-musl or aarch64-unknown-linux-musl"
 	@echo "  - for sgx: install intel sgx sdk"

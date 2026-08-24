@@ -3,6 +3,10 @@
 **/target
 **/*.log
 **/*.pem
+**/*.eif
+**/*.nep6.json
+**/nep6-wallet.json
+**/wallet-config.yml
 .vscode/
 .idea/
 **/.DS_Store

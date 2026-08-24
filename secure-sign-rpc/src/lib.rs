@@ -10,6 +10,7 @@ pub mod vsock;
 
 use secure_sign_core::bytes::ToArray;
 use secure_sign_core::h160::{H160, H160_SIZE};
+use secure_sign_core::neo::consensus::{ConsensusPolicyError, ConsensusSigningPolicy};
 use secure_sign_core::neo::sign::{SignError, Signer};
 use servicepb::{secure_sign_server::SecureSign, *};
 use tonic::async_trait;
@@ -47,11 +48,26 @@ pub fn to_h160_vec(source: Vec<Vec<u8>>) -> Result<Vec<H160>, tonic::Status> {
 
 pub struct DefaultSignService {
     signer: Signer,
+    consensus_policy: Option<ConsensusSigningPolicy>,
 }
 
 impl DefaultSignService {
     pub fn new(signer: Signer) -> Self {
-        Self { signer }
+        Self {
+            signer,
+            consensus_policy: None,
+        }
+    }
+
+    pub fn new_consensus(signer: Signer, network: u32) -> Self {
+        Self {
+            signer,
+            consensus_policy: Some(ConsensusSigningPolicy::new(network)),
+        }
+    }
+
+    fn policy_status(err: ConsensusPolicyError) -> tonic::Status {
+        tonic::Status::permission_denied(err.to_string())
     }
 }
 
@@ -66,6 +82,11 @@ impl SecureSign for DefaultSignService {
         let Some(payload) = req.payload.as_ref() else {
             return Err(tonic::Status::invalid_argument("payload is required"));
         };
+        if let Some(policy) = self.consensus_policy.as_ref() {
+            policy
+                .validate_extensible_payload(payload, &script_hashes, req.network)
+                .map_err(Self::policy_status)?;
+        }
 
         self.signer
             .sign_extensible_payload(payload, script_hashes, req.network)
@@ -82,6 +103,11 @@ impl SecureSign for DefaultSignService {
         let Some(block) = req.block.as_ref() else {
             return Err(tonic::Status::invalid_argument("block is required"));
         };
+        if let Some(policy) = self.consensus_policy.as_ref() {
+            policy
+                .validate_network(req.network)
+                .map_err(Self::policy_status)?;
+        }
 
         self.signer
             .sign_block(&req.public_key, block, req.network)

@@ -1,9 +1,12 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
-set -e
+set -euo pipefail
 
 # parse arguments: `--debug --cpu-count N --memory xx --cid CID --path PATH`
 CPU_COUNT=2
+case "$(uname -m)" in
+    aarch64|arm64) CPU_COUNT=1 ;;
+esac
 MEMORY=512
 DEBUG=false
 CID=2345
@@ -16,18 +19,22 @@ while [[ $# -gt 0 ]]; do
             shift
             ;;
         --cpu-count)
+            [[ $# -ge 2 ]] || { echo "Missing value for --cpu-count" >&2; exit 2; }
             CPU_COUNT=$2
             shift 2
             ;;
         --memory)
+            [[ $# -ge 2 ]] || { echo "Missing value for --memory" >&2; exit 2; }
             MEMORY=$2
             shift 2
             ;;
         --cid)
+            [[ $# -ge 2 ]] || { echo "Missing value for --cid" >&2; exit 2; }
             CID=$2
             shift 2
             ;;
         --eif-path)
+            [[ $# -ge 2 ]] || { echo "Missing value for --eif-path" >&2; exit 2; }
             EIF_PATH=$2
             shift 2
             ;;
@@ -40,11 +47,16 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+[[ "$CPU_COUNT" =~ ^[1-9][0-9]*$ ]] || { echo "--cpu-count must be a positive integer" >&2; exit 2; }
+[[ "$MEMORY" =~ ^[1-9][0-9]*$ ]] || { echo "--memory must be a positive integer" >&2; exit 2; }
+[[ "$CID" =~ ^[1-9][0-9]*$ ]] || { echo "--cid must be a positive integer" >&2; exit 2; }
+[[ -f "$EIF_PATH" ]] || { echo "Enclave image not found: $EIF_PATH" >&2; exit 2; }
+
 # if debug mode is true, then run in debug mode
-if [ "$DEBUG" == "true" ]; then
-    nitro-cli run-enclave --cpu-count $CPU_COUNT --memory $MEMORY --enclave-cid $CID --eif-path $EIF_PATH --debug-mode
+if [[ "$DEBUG" == "true" ]]; then
+    nitro-cli run-enclave --cpu-count "$CPU_COUNT" --memory "$MEMORY" --enclave-cid "$CID" --eif-path "$EIF_PATH" --debug-mode
 else
-    nitro-cli run-enclave --cpu-count $CPU_COUNT --memory $MEMORY --enclave-cid $CID --eif-path $EIF_PATH
+    nitro-cli run-enclave --cpu-count "$CPU_COUNT" --memory "$MEMORY" --enclave-cid "$CID" --eif-path "$EIF_PATH"
 fi
 
 sleep 2

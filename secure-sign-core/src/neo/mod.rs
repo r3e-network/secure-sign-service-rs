@@ -2,6 +2,7 @@
 // All Rights Reserved
 
 pub mod check_sign;
+pub mod consensus;
 pub mod nep2;
 pub mod nep6;
 pub mod sign;
