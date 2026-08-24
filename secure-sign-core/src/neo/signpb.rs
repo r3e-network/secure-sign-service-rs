@@ -21,6 +21,11 @@ pub struct Header {
     /// H160
     #[prost(bytes = "vec", tag = "8")]
     pub next_consensus: ::prost::alloc::vec::Vec<u8>,
+    /// H256 when state_root_enabled is true
+    #[prost(bytes = "vec", tag = "9")]
+    pub prev_state_root: ::prost::alloc::vec::Vec<u8>,
+    #[prost(bool, tag = "10")]
+    pub state_root_enabled: bool,
 }
 #[derive(Clone, PartialEq, ::prost::Message)]
 pub struct TrimmedBlock {

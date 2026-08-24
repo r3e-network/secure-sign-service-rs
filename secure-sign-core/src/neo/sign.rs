@@ -179,6 +179,19 @@ impl Signer {
         }
         H160::from_le_bytes(header.next_consensus.as_slice().to_array()).encode_bin(&mut buf);
 
+        if header.state_root_enabled {
+            if header.prev_state_root.len() != H256_SIZE {
+                return Err(SignError::InvalidBlock(
+                    "invalid previous state root".into(),
+                ));
+            }
+            H256::from_le_bytes(header.prev_state_root.as_slice().to_array()).encode_bin(&mut buf);
+        } else if !header.prev_state_root.is_empty() {
+            return Err(SignError::InvalidBlock(
+                "unexpected previous state root".into(),
+            ));
+        }
+
         Ok(buf.to_sign_data(network))
     }
 
@@ -251,5 +264,64 @@ impl Signer {
         payload.data.as_slice().encode_bin(&mut buf);
 
         Ok(buf.to_sign_data(network))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn block_header() -> Header {
+        Header {
+            prev_hash: vec![0; H256_SIZE],
+            merkle_root: vec![0; H256_SIZE],
+            next_consensus: vec![0; H160_SIZE],
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn state_root_header_is_explicit_and_signed() {
+        let without_state_root = TrimmedBlock {
+            header: Some(block_header()),
+            tx_hashes: Vec::new(),
+        };
+        let plain = Signer::trimmed_block_sign_data(&without_state_root, 42).unwrap();
+
+        let mut header = block_header();
+        header.state_root_enabled = true;
+        header.prev_state_root = vec![7; H256_SIZE];
+        let with_state_root = TrimmedBlock {
+            header: Some(header),
+            tx_hashes: Vec::new(),
+        };
+        let rooted = Signer::trimmed_block_sign_data(&with_state_root, 42).unwrap();
+        assert_ne!(plain, rooted);
+
+        let mut missing = block_header();
+        missing.state_root_enabled = true;
+        assert!(matches!(
+            Signer::trimmed_block_sign_data(
+                &TrimmedBlock {
+                    header: Some(missing),
+                    tx_hashes: Vec::new(),
+                },
+                42,
+            ),
+            Err(SignError::InvalidBlock(_))
+        ));
+
+        let mut unexpected = block_header();
+        unexpected.prev_state_root = vec![7; H256_SIZE];
+        assert!(matches!(
+            Signer::trimmed_block_sign_data(
+                &TrimmedBlock {
+                    header: Some(unexpected),
+                    tx_hashes: Vec::new(),
+                },
+                42,
+            ),
+            Err(SignError::InvalidBlock(_))
+        ));
     }
 }
