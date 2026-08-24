@@ -133,7 +133,7 @@ impl Signer {
             .map_err(|err| SignError::EcdsaSignError(err.to_string()))
     }
 
-    fn trimmed_block_sign_data(
+    pub fn trimmed_block_sign_data(
         block: &TrimmedBlock,
         network: u32,
     ) -> Result<[u8; SIGN_DATA_SIZE], SignError> {
@@ -235,7 +235,7 @@ impl Signer {
         Ok(MultiAccountSigns { signs })
     }
 
-    fn extensible_sign_data(
+    pub fn extensible_sign_data(
         payload: &ExtensiblePayload,
         network: u32,
     ) -> Result<[u8; SIGN_DATA_SIZE], SignError> {

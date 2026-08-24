@@ -14,6 +14,7 @@ It provides secure signing capabilities through multiple deployment modes with h
 - Secure key storage and management
 - Encrypted wallet support (NEP-6 format)
 - Isolated execution environments
+- A WireGuard-bound consensus gateway with persistent anti-equivocation checks
 
 ## Prerequisites
 NOTE: This is service for manageing private keys in scure.
@@ -162,6 +163,27 @@ nitro-cli terminate-enclave --enclave-id <enclave-id>
 # Console access (debug mode only)
 nitro-cli console --enclave-id <enclave-id>
 ```
+
+### Remote Consensus Gateway
+
+Keep the enclave startup service private to the parent instance. Expose only
+the `SecureSign` service through the gateway on a dedicated WireGuard address:
+
+```bash
+make gateway
+./target/secure-sign-gateway \
+    --listen 10.78.0.1:9991 \
+    --enclave-cid 2345 \
+    --enclave-port 9991 \
+    --network 860833102 \
+    --public-key <compressed-council-public-key> \
+    --journal /var/lib/neo-signer/anti-equivocation.log
+```
+
+The gateway accepts one request at a time, enforces the configured network and
+public key, and durably rejects conflicting prepare/commit or block signatures
+for the same consensus slot. Change-view and recovery messages remain retryable
+because their payloads can legitimately evolve within a view.
 
 ### Wallet Management Tools
 Decrypt wallet and check account status after server is started (for SGX or AWS Nitro modes):

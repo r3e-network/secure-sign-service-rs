@@ -5,6 +5,7 @@ resolver = "2"
 members = [ 
     "secure-sign",
     "secure-sign-core",
+    "secure-sign-gateway",
     "secure-sign-rpc",
     "secure-sign-nitro",
 ]

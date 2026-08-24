@@ -1710,6 +1710,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "secure-sign-gateway"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "hex",
+ "secure-sign-core",
+ "secure-sign-rpc",
+ "tempfile",
+ "tokio",
+ "tonic",
+]
+
+[[package]]
 name = "secure-sign-nitro"
 version = "0.1.0"
 dependencies = [

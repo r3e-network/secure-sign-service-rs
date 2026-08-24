@@ -35,6 +35,10 @@ tools:
 	cargo build --release --features tcp --no-default-features
 	mv target/release/secure-sign target/secure-sign-tools
 
+gateway:
+	cargo build --release -p secure-sign-gateway
+	cp target/release/secure-sign-gateway target/secure-sign-gateway
+
 clean:
 	cargo clean
 	rm -f target/secure-sign-tcp target/secure-sign-vsock target/secure-sign-tools
@@ -48,6 +52,7 @@ help:
 	@echo "  vsock -- build vsock server(for aws nitro), output is target/secure-sign-vsock"
 	@echo "  sgx   -- build sgx server(for intel sgx enclave), output is secure-sign-sgx/target/secure-sign-sgx"
 	@echo "  tools -- build tools(for mock, decrypt wallet and get account status), output is target/secure-sign-tools"
+	@echo "  gateway -- build the consensus-only TCP-to-vsock gateway"
 	@echo "  clean -- clean all build artifacts"
 	@echo "  help  -- show this help message"
 	@echo ""
