@@ -34,6 +34,14 @@ So it needs to be compiled manually. And the compiled product may needs to be si
 - AWS EC2 instance with Nitro Enclave support
 - Docker
 - AWS Nitro CLI (`nitro-cli`)
+
+For a dedicated Neo consensus signer, the production minimum is a
+`c6g.large` parent (2 vCPU, 4 GiB) with 1 vCPU and 1 GiB reserved for the
+enclave. The parent should run only SSM, WireGuard, the TCP-to-vsock gateway,
+and signer supervision; chain storage, RPC, indexing, and build tooling belong
+on separate hosts. Smaller burstable or single-vCPU shapes cannot provide the
+required enclave resources. Recheck regional EC2 pricing before provisioning,
+but do not trade signer availability for Spot interruption risk.
 - Rust toolchain
 - For Vsock support: `rustup target add x86_64-unknown-linux-musl` (x86_64) or `rustup target add aarch64-unknown-linux-musl` (ARM64)
 
