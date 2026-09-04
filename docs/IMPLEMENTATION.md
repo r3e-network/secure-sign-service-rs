@@ -70,7 +70,8 @@ Unset allowlist while enabled → `AllowlistNotConfigured` / startup config erro
    signature call. All external RPC work happens before it, so economic work
    cannot delay normal dBFT signing.
 8. Verify the returned P-256 signature locally, broadcast, and wait for a HALT
-   application log before marking the local plan confirmed.
+   application log under Neo N3's single-SHA256 transaction ID before marking
+   the local plan confirmed.
 
 The sweep client is dry-run by default. Production execution requires the
 explicit `--broadcast` argument used by `neo-gas-sweep.service`. The state file
