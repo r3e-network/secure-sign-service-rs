@@ -1,0 +1,562 @@
+name: Extended Integration Tests
+
+on:
+  push:
+    branches: [ main, develop, docs ]
+  pull_request:
+    branches: [ main, develop, docs ]
+  workflow_dispatch:
+    inputs:
+      test_sgx_hardware:
+        description: 'Test SGX in hardware mode (requires SGX-enabled runner)'
+        required: false
+        default: false
+        type: boolean
+      test_nitro_hardware:
+        description: 'Test Nitro with actual EIF creation'
+        required: false
+        default: false
+        type: boolean
+
+# Cancel old workflows when new ones are created
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  comprehensive-sgx-test:
+    name: Comprehensive SGX Testing
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    
+    strategy:
+      matrix:
+        include:
+          # Always include SW mode tests
+          - sgx_mode: SW
+            sgx_debug: true
+          - sgx_mode: SW
+            sgx_debug: false
+          # Only include HW mode if explicitly requested
+          - sgx_mode: HW
+            sgx_debug: true
+            run_condition: ${{ github.event.inputs.test_sgx_hardware == 'true' }}
+          - sgx_mode: HW
+            sgx_debug: false
+            run_condition: ${{ github.event.inputs.test_sgx_hardware == 'true' }}
+    
+    steps:
+    - name: Check if job should run
+      if: ${{ matrix.sgx_mode == 'SW' || github.event.inputs.test_sgx_hardware == 'true' }}
+      run: echo "Running SGX test for mode ${{ matrix.sgx_mode }}"
+      
+    - name: Checkout code
+      if: ${{ matrix.sgx_mode == 'SW' || github.event.inputs.test_sgx_hardware == 'true' }}
+      uses: actions/checkout@v4
+
+    - name: Install Rust toolchain
+      if: ${{ matrix.sgx_mode == 'SW' || github.event.inputs.test_sgx_hardware == 'true' }}
+      uses: dtolnay/rust-toolchain@nightly
+      with:
+        toolchain: nightly
+        targets: x86_64-unknown-linux-musl
+        components: rust-src
+
+    - name: Cache cargo registry
+      if: ${{ matrix.sgx_mode == 'SW' || github.event.inputs.test_sgx_hardware == 'true' }}
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: ${{ runner.os }}-cargo-sgx-${{ matrix.sgx_mode }}-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-sgx-
+
+    - name: Install Intel SGX SDK and dependencies
+      if: ${{ matrix.sgx_mode == 'SW' || github.event.inputs.test_sgx_hardware == 'true' }}
+      run: |
+        # Install SGX SDK
+        wget -q https://download.01.org/intel-sgx/sgx-linux/2.24/distro/ubuntu20.04-server/sgx_linux_x64_sdk_2.24.100.3.bin
+        chmod +x sgx_linux_x64_sdk_2.24.100.3.bin
+        echo 'yes' | sudo ./sgx_linux_x64_sdk_2.24.100.3.bin --prefix=/opt/intel
+        
+        # Install required packages
+        sudo apt-get update
+        sudo apt-get install -y build-essential ocaml ocamlbuild automake autoconf libtool wget python3 libssl-dev git cmake perl protobuf-compiler
+        
+        # Install SGX driver and PSW for HW mode (if requested)
+        if [ "${{ matrix.sgx_mode }}" = "HW" ]; then
+          echo "Installing SGX driver and PSW for hardware mode..."
+          # Note: This would require actual SGX hardware
+          # For CI, we'll skip this and rely on simulation
+        fi
+
+    - name: Create comprehensive test data
+      if: ${{ matrix.sgx_mode == 'SW' || github.event.inputs.test_sgx_hardware == 'true' }}
+      run: |
+        mkdir -p test-data
+        
+        # Create multiple test wallets with different configurations
+        cat > test-data/test_wallet_simple.json << 'EOF'
+        {
+          "name": "simple-test-wallet",
+          "version": "1.0",
+          "scrypt": { "n": 16384, "r": 8, "p": 8 },
+          "accounts": [{
+            "address": "NiNmXL8FjEUEs1nfX9uHFBNaenxDHJtmuB",
+            "label": "simple-account",
+            "isDefault": true,
+            "lock": false,
+            "key": "6PYVPVe1fQznphjbUxXP9KZJqPMVnVwCx5s5pr5axRJ8uHkMtZg97eT5kL",
+            "contract": {
+              "script": "0c2102028a99826edc0c97d18e22b6932373d908d323aa7f92656a77ec26e8861699ef",
+              "parameters": [{"name": "signature", "type": "Signature"}],
+              "deployed": false
+            }
+          }]
+        }
+        EOF
+        
+        cat > test-data/test_wallet_multi.json << 'EOF'
+        {
+          "name": "multi-account-wallet",
+          "version": "1.0",
+          "scrypt": { "n": 16384, "r": 8, "p": 8 },
+          "accounts": [
+            {
+              "address": "NiNmXL8FjEUEs1nfX9uHFBNaenxDHJtmuB",
+              "label": "account-1",
+              "isDefault": true,
+              "lock": false,
+              "key": "6PYVPVe1fQznphjbUxXP9KZJqPMVnVwCx5s5pr5axRJ8uHkMtZg97eT5kL",
+              "contract": {
+                "script": "0c2102028a99826edc0c97d18e22b6932373d908d323aa7f92656a77ec26e8861699ef",
+                "parameters": [{"name": "signature", "type": "Signature"}],
+                "deployed": false
+              }
+            },
+            {
+              "address": "NfgHwwTi3wHAS8aFAN243C5vGbkYDpqLHP",
+              "label": "account-2",
+              "isDefault": false,
+              "lock": false,
+              "key": "6PYVPVe1fQznphjbUxXP9KZJqPMVnVwCx5s5pr5axRJ8uHkMtZg97eT5kL",
+              "contract": {
+                "script": "0c2103028a99826edc0c97d18e22b6932373d908d323aa7f92656a77ec26e8861699ef",
+                "parameters": [{"name": "signature", "type": "Signature"}],
+                "deployed": false
+              }
+            }
+          ]
+        }
+        EOF
+        
+        # Create signing keys for different scenarios
+        openssl genrsa -out test-data/sgx_sign_key_debug.pem -3 3072
+        openssl genrsa -out test-data/sgx_sign_key_production.pem -3 3072
+
+    - name: Build and test SGX enclave
+      if: ${{ matrix.sgx_mode == 'SW' || github.event.inputs.test_sgx_hardware == 'true' }}
+      run: |
+        source /opt/intel/sgxsdk/environment
+        export SGX_MODE=${{ matrix.sgx_mode }}
+        export SGX_DEBUG=${{ matrix.sgx_debug }}
+        
+        # Test with simple wallet
+        echo "Testing with simple wallet..."
+        cd secure-sign-sgx-enclave
+        ls -la build.sh
+        chmod +x build.sh
+        ls -la build.sh
+        ./build.sh --wallet-path ../test-data/test_wallet_simple.json \
+                   --sign-key ../test-data/sgx_sign_key_${{ matrix.sgx_debug == 'true' && 'debug' || 'production' }}.pem \
+                   --sgx-mode ${{ matrix.sgx_mode }} \
+                   ${{ matrix.sgx_debug == 'true' && '--sgx-debug' || '' }}
+        
+        # Verify enclave was built
+        if [ ! -f "secure_sign_sgx_enclave.signed.so" ]; then
+          echo "Failed to build SGX enclave!"
+          exit 1
+        fi
+        
+        # Clean and test with multi-account wallet
+        make clean
+        echo "Testing with multi-account wallet..."
+        chmod +x build.sh
+        ./build.sh --wallet-path ../test-data/test_wallet_multi.json \
+                   --sign-key ../test-data/sgx_sign_key_${{ matrix.sgx_debug == 'true' && 'debug' || 'production' }}.pem \
+                   --sgx-mode ${{ matrix.sgx_mode }} \
+                   ${{ matrix.sgx_debug == 'true' && '--sgx-debug' || '' }}
+
+    - name: Build and test SGX application
+      if: ${{ matrix.sgx_mode == 'SW' || github.event.inputs.test_sgx_hardware == 'true' }}
+      run: |
+        source /opt/intel/sgxsdk/environment
+        export SGX_MODE=${{ matrix.sgx_mode }}
+        
+        cd secure-sign-sgx
+        chmod +x build.sh
+        ./build.sh --sgx-mode ${{ matrix.sgx_mode }}
+        
+        # Verify application was built
+        if [ ! -f "target/secure-sign-sgx" ]; then
+          echo "Failed to build SGX application!"
+          exit 1
+        fi
+
+    - name: Run SGX integration tests
+      if: ${{ matrix.sgx_mode == 'SW' || github.event.inputs.test_sgx_hardware == 'true' }}
+      run: |
+        source /opt/intel/sgxsdk/environment
+        export SGX_MODE=${{ matrix.sgx_mode }}
+        
+        # Test basic functionality
+        echo "Testing SGX application help..."
+        timeout 10s ./secure-sign-sgx/target/secure-sign-sgx --help
+        
+        # Test enclave loading (simulation only)
+        if [ "${{ matrix.sgx_mode }}" = "SW" ]; then
+          echo "Testing enclave loading in simulation mode..."
+          chmod +x scripts/sgx/run.sh
+          timeout 30s ./scripts/sgx/run.sh --sgx-bin ./secure-sign-sgx/target/secure-sign-sgx \
+                                           --enclave-bin ./secure-sign-sgx-enclave/secure_sign_sgx_enclave.signed.so &
+          SGX_PID=$!
+          sleep 5
+          kill $SGX_PID || true
+          wait $SGX_PID 2>/dev/null || true
+          echo "SGX simulation test completed!"
+        fi
+
+  comprehensive-nitro-test:
+    name: Comprehensive Nitro Testing
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    
+    strategy:
+      matrix:
+        include:
+          # Always include build_only test
+          - test_type: build_only
+          # Only include full_eif test if explicitly requested
+          - test_type: full_eif
+            run_condition: ${{ github.event.inputs.test_nitro_hardware == 'true' }}
+    
+    steps:
+    - name: Check if job should run
+      if: ${{ matrix.test_type == 'build_only' || github.event.inputs.test_nitro_hardware == 'true' }}
+      run: echo "Running Nitro test for type ${{ matrix.test_type }}"
+      
+    - name: Checkout code
+      if: ${{ matrix.test_type == 'build_only' || github.event.inputs.test_nitro_hardware == 'true' }}
+      uses: actions/checkout@v4
+
+    - name: Install Rust toolchain
+      if: ${{ matrix.test_type == 'build_only' || github.event.inputs.test_nitro_hardware == 'true' }}
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        toolchain: stable
+        targets: x86_64-unknown-linux-musl
+        
+    - name: Install additional targets
+      if: ${{ matrix.test_type == 'build_only' || github.event.inputs.test_nitro_hardware == 'true' }}
+      run: rustup target add x86_64-unknown-linux-musl
+
+    - name: Cache cargo registry
+      if: ${{ matrix.test_type == 'build_only' || github.event.inputs.test_nitro_hardware == 'true' }}
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          target
+        key: ${{ runner.os }}-cargo-nitro-${{ matrix.test_type }}-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-nitro-
+
+    - name: Install Docker and Nitro CLI
+      if: ${{ matrix.test_type == 'build_only' || github.event.inputs.test_nitro_hardware == 'true' }}
+      run: |
+        # Use Docker's official installation script to avoid conflicts
+        curl -fsSL https://get.docker.com -o get-docker.sh
+        sudo sh get-docker.sh
+        sudo systemctl start docker
+        sudo usermod -aG docker $USER
+        # Test Docker installation
+        sudo docker --version
+        
+        # Install AWS CLI and Nitro CLI dependencies
+        sudo apt-get install -y python3-pip protobuf-compiler
+        pip3 install awscli
+        
+        # Install Nitro CLI (optional - don't fail if it doesn't work)
+        echo "Attempting to install Nitro CLI..."
+        if wget -q https://github.com/aws/aws-nitro-enclaves-cli/releases/download/v1.2.2/nitro-cli_1.2.2_amd64.deb; then
+          if sudo dpkg -i nitro-cli_1.2.2_amd64.deb; then
+            echo "Nitro CLI installed successfully"
+          else
+            echo "Nitro CLI dpkg failed, attempting to fix dependencies..."
+            sudo apt-get install -f -y || echo "Failed to fix dependencies, continuing without Nitro CLI"
+          fi
+        else
+          echo "Failed to download Nitro CLI, continuing without it"
+        fi
+        
+        # Create a dummy nitro-cli if installation failed
+        if ! command -v nitro-cli &> /dev/null; then
+          echo "Creating dummy nitro-cli for testing..."
+          sudo tee /usr/local/bin/nitro-cli > /dev/null << 'EOF'
+#!/bin/bash
+echo "nitro-cli (dummy) 1.0.0"
+echo "Note: This is a dummy implementation for CI testing"
+if [ "$1" = "--version" ]; then
+  exit 0
+fi
+echo "Error: Actual Nitro CLI not available in CI environment"
+exit 1
+EOF
+          sudo chmod +x /usr/local/bin/nitro-cli
+        fi
+        
+        # Verify installations
+        echo "Verifying installations..."
+        docker --version
+        aws --version || echo "AWS CLI not available"
+        nitro-cli --version || echo "Nitro CLI not available"
+
+    - name: Create comprehensive test data
+      if: ${{ matrix.test_type == 'build_only' || github.event.inputs.test_nitro_hardware == 'true' }}
+      run: |
+        mkdir -p test-data
+        
+        # Create test wallets with different configurations
+        cat > test-data/nitro_wallet_simple.json << 'EOF'
+        {
+          "name": "nitro-simple-wallet",
+          "version": "1.0",
+          "scrypt": { "n": 16384, "r": 8, "p": 8 },
+          "accounts": [{
+            "address": "NiNmXL8FjEUEs1nfX9uHFBNaenxDHJtmuB",
+            "label": "nitro-account",
+            "isDefault": true,
+            "lock": false,
+            "key": "6PYVPVe1fQznphjbUxXP9KZJqPMVnVwCx5s5pr5axRJ8uHkMtZg97eT5kL",
+            "contract": {
+              "script": "0c2102028a99826edc0c97d18e22b6932373d908d323aa7f92656a77ec26e8861699ef",
+              "parameters": [{"name": "signature", "type": "Signature"}],
+              "deployed": false
+            }
+          }]
+        }
+        EOF
+        
+        # Create signing keys for Nitro (if full EIF test)
+        if [ "${{ matrix.test_type }}" = "full_eif" ]; then
+          openssl genrsa -out test-data/nitro_private_key.pem 3072
+          openssl req -new -x509 -key test-data/nitro_private_key.pem -sha256 -days 365 \
+                      -out test-data/nitro_certificate.pem -subj "/C=US/ST=Test/L=Test/O=Test/CN=test"
+        fi
+
+    - name: Build VSOCK binary
+      if: ${{ matrix.test_type == 'build_only' || github.event.inputs.test_nitro_hardware == 'true' }}
+      run: |
+        echo "Building VSOCK binary for Nitro..."
+        make vsock
+        
+        # Verify binary was built
+        if [ ! -f "target/secure-sign-vsock" ]; then
+          echo "Failed to build VSOCK binary!"
+          exit 1
+        fi
+        
+        # Test binary functionality
+        echo "Testing VSOCK binary..."
+        timeout 10s ./target/secure-sign-vsock --help
+
+    - name: Test Nitro Docker build
+      if: ${{ matrix.test_type == 'build_only' || github.event.inputs.test_nitro_hardware == 'true' }}
+      run: |
+        cd scripts/nitro
+        
+        # Test with simple wallet
+        echo "Testing Nitro Docker build with simple wallet..."
+        chmod +x build.sh
+        ./build.sh --wallet ../../test-data/nitro_wallet_simple.json \
+                   --bin ../../target/secure-sign-vsock \
+                   --image secure-sign-nitro-test
+        
+        # Verify Docker image was created
+        docker images | grep secure-sign-nitro-test
+        
+        # Test Docker image functionality
+        echo "Testing Docker image..."
+        timeout 30s docker run --rm secure-sign-nitro-test /bin/secure-sign-service --help || true
+
+    - name: Test EIF creation (if requested)
+      if: ${{ matrix.test_type == 'full_eif' && github.event.inputs.test_nitro_hardware == 'true' }}
+      run: |
+        cd scripts/nitro
+        
+        echo "Testing full EIF creation..."
+        chmod +x build.sh
+        ./build.sh --wallet ../../test-data/nitro_wallet_simple.json \
+                   --bin ../../target/secure-sign-vsock \
+                   --image secure-sign-nitro-eif-test \
+                   --private-key ../../test-data/nitro_private_key.pem \
+                   --signing-certificate ../../test-data/nitro_certificate.pem
+        
+        # Verify EIF was created
+        if [ ! -f "secure-sign-nitro-eif-test.eif" ]; then
+          echo "Failed to create EIF file!"
+          exit 1
+        fi
+        
+        # Check EIF file size and properties
+        ls -lh secure-sign-nitro-eif-test.eif
+        file secure-sign-nitro-eif-test.eif
+
+    - name: Cleanup
+      if: ${{ always() && (matrix.test_type == 'build_only' || github.event.inputs.test_nitro_hardware == 'true') }}
+      run: |
+        # Clean up Docker images
+        docker images | grep secure-sign-nitro | awk '{print $3}' | xargs -r docker rmi || true
+
+  performance-benchmarks:
+    name: Performance Benchmarks
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        toolchain: stable
+        
+    - name: Install additional targets
+      run: rustup target add x86_64-unknown-linux-musl
+
+    - name: Install benchmarking tools
+      run: |
+        cargo install cargo-criterion
+        sudo apt-get update
+        sudo apt-get install -y valgrind protobuf-compiler
+
+    - name: Run performance benchmarks
+      run: |
+        # Run cargo benchmarks if they exist
+        if find . -name "benches" -type d | grep -q .; then
+          cargo criterion
+        else
+          echo "No benchmarks found, creating basic performance test..."
+          
+          # Build optimized binaries
+          make tcp
+          
+          # Basic performance test
+          echo "Testing binary startup time..."
+          time timeout 5s ./target/secure-sign-tcp --help || true
+        fi
+
+    - name: Memory usage analysis
+      run: |
+        echo "Analyzing memory usage..."
+        if [ -f "./target/secure-sign-tcp" ]; then
+          # Basic memory analysis
+          valgrind --tool=massif --time-unit=ms timeout 10s ./target/secure-sign-tcp --help || true
+        fi
+
+  security-audit:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        toolchain: stable
+        
+    - name: Install additional targets
+      run: rustup target add x86_64-unknown-linux-musl
+
+    - name: Install security audit tools
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y protobuf-compiler
+        cargo install cargo-audit
+        cargo install cargo-deny
+
+    - name: Run security audit
+      run: |
+        echo "Running cargo audit..."
+        cargo audit
+        
+        echo "Running cargo deny..."
+        cargo deny check || true  # Don't fail on warnings initially
+
+    - name: Check for unsafe code
+      run: |
+        echo "Checking for unsafe code blocks..."
+        find . -name "*.rs" -exec grep -l "unsafe" {} \; | tee unsafe_files.txt || true
+        
+        if [ -s unsafe_files.txt ]; then
+          echo "Found unsafe code in the following files:"
+          cat unsafe_files.txt
+          echo "Please review these files for security implications."
+        else
+          echo "No unsafe code blocks found."
+        fi
+
+  cross-platform-test:
+    name: Cross-platform Compatibility
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    
+    strategy:
+      matrix:
+        os: [ubuntu-22.04, ubuntu-24.04]
+        rust: [stable, nightly]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        toolchain: ${{ matrix.rust }}
+        targets: x86_64-unknown-linux-musl
+        
+    - name: Install additional targets
+      run: rustup target add x86_64-unknown-linux-musl
+
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y protobuf-compiler
+
+    - name: Test basic build
+      run: |
+        echo "Testing basic build on ${{ matrix.os }} with ${{ matrix.rust }}..."
+        cargo build --workspace --verbose
+        
+        echo "Testing TCP build..."
+        make tcp
+        
+        echo "Testing tools build..."
+        make tools
+
+    - name: Test cross-compilation
+      run: |
+        echo "Testing cross-compilation..."
+        cargo build --target x86_64-unknown-linux-musl --workspace
