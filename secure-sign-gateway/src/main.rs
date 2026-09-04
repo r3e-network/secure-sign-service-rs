@@ -15,9 +15,11 @@ use secure_sign_core::neo::consensus::{
 use secure_sign_core::neo::sign::Signer;
 use secure_sign_rpc::servicepb::secure_sign_client::SecureSignClient;
 use secure_sign_rpc::servicepb::secure_sign_server::{SecureSign, SecureSignServer};
+use secure_sign_core::neo::gas_sweep_policy::{build_deploy_policy, GasSweepSigningPolicy};
 use secure_sign_rpc::servicepb::{
     GetAccountStatusRequest, GetAccountStatusResponse, SignBlockRequest, SignBlockResponse,
-    SignExtensiblePayloadRequest, SignExtensiblePayloadResponse,
+    SignExtensiblePayloadRequest, SignExtensiblePayloadResponse, SignTransactionRequest,
+    SignTransactionResponse,
 };
 use secure_sign_rpc::vsock::vsock_channel;
 use tokio::sync::{Mutex, Semaphore};
@@ -49,6 +51,23 @@ struct Args {
 
     #[arg(long, default_value_t = 900)]
     timeout_ms: u64,
+
+    /// Master switch for allowlisted SignTransaction (default OFF).
+    #[arg(long, default_value_t = false, env = "ENABLE_SIGN_TRANSACTION")]
+    enable_sign_transaction: bool,
+
+    /// Allowlisted GAS sweep destination Neo N3 address (deploy-time only).
+    /// Required when `--enable-sign-transaction` is on (or set via env).
+    #[arg(long, env = "GAS_SWEEP_DESTINATION_ADDRESS")]
+    gas_sweep_destination: Option<String>,
+
+    /// Allowlisted destination script hash LE hex (alternative to address).
+    #[arg(long, env = "GAS_SWEEP_DESTINATION_SCRIPT_HASH")]
+    gas_sweep_destination_script_hash: Option<String>,
+
+    /// Separate timeout for economic SignTransaction path (ms).
+    #[arg(long, default_value_t = 10_000)]
+    economic_timeout_ms: u64,
 }
 
 struct AntiEquivocationJournal {
@@ -123,10 +142,14 @@ impl AntiEquivocationJournal {
 struct Gateway {
     client: SecureSignClient<Channel>,
     policy: ConsensusSigningPolicy,
+    gas_sweep_policy: GasSweepSigningPolicy,
     public_key: Arc<Vec<u8>>,
     journal: Arc<Mutex<AntiEquivocationJournal>>,
     single_flight: Arc<Semaphore>,
+    /// Low-priority economic path; never shares consensus single_flight.
+    economic_flight: Arc<Semaphore>,
     timeout: Duration,
+    economic_timeout: Duration,
 }
 
 impl Gateway {
@@ -177,6 +200,19 @@ impl Gateway {
             .acquire_owned()
             .await
             .map_err(|_| Status::unavailable("signing gateway is shutting down"))
+    }
+
+    async fn economic_permit(&self) -> Result<tokio::sync::OwnedSemaphorePermit, Status> {
+        // Do not starve dBFT: refuse economic signing if consensus permit is held.
+        if self.single_flight.available_permits() == 0 {
+            return Err(Status::resource_exhausted(
+                "consensus signing in flight; economic sign refused",
+            ));
+        }
+        self.economic_flight
+            .clone()
+            .try_acquire_owned()
+            .map_err(|_| Status::resource_exhausted("economic signing already in flight"))
     }
 }
 
@@ -244,6 +280,42 @@ impl SecureSign for Gateway {
             .map_err(|_| Status::deadline_exceeded("enclave signing deadline exceeded"))?
     }
 
+    async fn sign_transaction(
+        &self,
+        request: Request<SignTransactionRequest>,
+    ) -> Result<Response<SignTransactionResponse>, Status> {
+        let _permit = self.economic_permit().await?;
+        let request = request.into_inner();
+        if request.public_key != *self.public_key {
+            return Err(Status::permission_denied("public key is not allowed"));
+        }
+        // Fail-closed policy including deploy-time destination allowlist.
+        self.gas_sweep_policy
+            .validate_sign_transaction(
+                &request.raw_tx,
+                &request.public_key,
+                request.network,
+                &request.idempotency_key,
+                request.expected_amount,
+                request.expected_fee_total,
+                None,
+            )
+            .map_err(|err| match err {
+                secure_sign_core::neo::gas_sweep_policy::GasSweepPolicyError::Disabled => {
+                    Status::unimplemented("SignTransaction is disabled")
+                }
+                other => Status::permission_denied(other.to_string()),
+            })?;
+
+        let mut client = self.client.clone();
+        tokio::time::timeout(
+            self.economic_timeout,
+            client.sign_transaction(request),
+        )
+        .await
+        .map_err(|_| Status::deadline_exceeded("enclave economic signing deadline exceeded"))?
+    }
+
     async fn get_account_status(
         &self,
         request: Request<GetAccountStatusRequest>,
@@ -271,16 +343,27 @@ fn decode_public_key(value: &str) -> Result<Vec<u8>, String> {
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
     let public_key = decode_public_key(&args.public_key)?;
+    let gas_sweep_policy = build_deploy_policy(
+        args.network,
+        args.enable_sign_transaction,
+        public_key.clone(),
+        args.gas_sweep_destination.as_deref(),
+        args.gas_sweep_destination_script_hash.as_deref(),
+    )
+    .map_err(|err| format!("gas sweep deploy config: {err}"))?;
     let journal = AntiEquivocationJournal::open(&args.journal)?;
     let channel = vsock_channel(args.enclave_cid, args.enclave_port).await?;
 
     let gateway = Gateway {
         client: SecureSignClient::new(channel),
         policy: ConsensusSigningPolicy::new(args.network),
+        gas_sweep_policy,
         public_key: Arc::new(public_key),
         journal: Arc::new(Mutex::new(journal)),
         single_flight: Arc::new(Semaphore::new(1)),
+        economic_flight: Arc::new(Semaphore::new(1)),
         timeout: Duration::from_millis(args.timeout_ms),
+        economic_timeout: Duration::from_millis(args.economic_timeout_ms),
     };
 
     Server::builder()
@@ -337,5 +420,19 @@ mod tests {
         assert!(decode_public_key(&"04".repeat(65)).is_ok());
         assert!(decode_public_key("abcd").is_err());
         assert!(decode_public_key("not-hex").is_err());
+    }
+
+    #[test]
+    fn sign_transaction_flag_defaults_off() {
+        let policy = GasSweepSigningPolicy::mainnet_default_off();
+        assert!(!policy.enabled());
+        assert!(policy.allowlisted_destination().is_none());
+    }
+
+    #[test]
+    fn enable_requires_destination_allowlist() {
+        let pk = decode_public_key(&"02".repeat(33)).unwrap();
+        let err = build_deploy_policy(860_833_102, true, pk, None, None).unwrap_err();
+        assert!(err.to_string().contains("destination allowlist required"));
     }
 }

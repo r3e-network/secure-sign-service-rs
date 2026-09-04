@@ -47,6 +47,45 @@ pub struct GetAccountStatusResponse {
     #[prost(enumeration = "::secure_sign_core::neo::signpb::AccountStatus", tag = "1")]
     pub status: i32,
 }
+/// Allowlisted MainNet GAS sweep signing (Option B). Feature-flagged; never broadcasts.
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SignTransactionRequest {
+    /// Unsigned Neo N3 transaction hash-data (network serialization WITHOUT witnesses).
+    #[prost(bytes = "vec", tag = "1")]
+    pub raw_tx: ::prost::alloc::vec::Vec<u8>,
+    /// Must equal gateway-pinned council key (compressed SEC1).
+    #[prost(bytes = "vec", tag = "2")]
+    pub public_key: ::prost::alloc::vec::Vec<u8>,
+    /// Must be 860833102 on MainNet production.
+    #[prost(uint32, tag = "3")]
+    pub network: u32,
+    /// Client-generated opaque key (UUIDv4 / 32-byte hex). Required.
+    #[prost(string, tag = "4")]
+    pub idempotency_key: ::prost::alloc::string::String,
+    /// Optional correlation id from dry-run / ops ticket.
+    #[prost(string, tag = "5")]
+    pub client_dry_run_id: ::prost::alloc::string::String,
+    /// Client-asserted amount in GAS fractions (uint64). Re-validated against script.
+    #[prost(uint64, tag = "6")]
+    pub expected_amount: u64,
+    /// Client-asserted fee sum in fractions; must match tx.system_fee+network_fee and <= cap.
+    #[prost(uint64, tag = "7")]
+    pub expected_fee_total: u64,
+}
+#[derive(Clone, PartialEq, ::prost::Message)]
+pub struct SignTransactionResponse {
+    /// ECDSA secp256r1 signature over transaction sign-data (network||hash), raw 64 bytes.
+    #[prost(bytes = "vec", tag = "1")]
+    pub signature: ::prost::alloc::vec::Vec<u8>,
+    /// Echo of computed tx hash (LE H256 bytes) for client assemble/broadcast.
+    #[prost(bytes = "vec", tag = "2")]
+    pub tx_hash: ::prost::alloc::vec::Vec<u8>,
+    /// Echo idempotency_key; when served from cache, cache_hit=true.
+    #[prost(string, tag = "3")]
+    pub idempotency_key: ::prost::alloc::string::String,
+    #[prost(bool, tag = "4")]
+    pub cache_hit: bool,
+}
 /// Generated client implementations.
 pub mod secure_sign_client {
     #![allow(
@@ -212,6 +251,30 @@ pub mod secure_sign_client {
                 .insert(GrpcMethod::new("servicepb.SecureSign", "GetAccountStatus"));
             self.inner.unary(req, path, codec).await
         }
+        pub async fn sign_transaction(
+            &mut self,
+            request: impl tonic::IntoRequest<super::SignTransactionRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::SignTransactionResponse>,
+            tonic::Status,
+        > {
+            self.inner
+                .ready()
+                .await
+                .map_err(|e| {
+                    tonic::Status::unknown(
+                        format!("Service was not ready: {}", e.into()),
+                    )
+                })?;
+            let codec = tonic::codec::ProstCodec::default();
+            let path = http::uri::PathAndQuery::from_static(
+                "/servicepb.SecureSign/SignTransaction",
+            );
+            let mut req = request.into_request();
+            req.extensions_mut()
+                .insert(GrpcMethod::new("servicepb.SecureSign", "SignTransaction"));
+            self.inner.unary(req, path, codec).await
+        }
     }
 }
 /// Generated server implementations.
@@ -246,6 +309,13 @@ pub mod secure_sign_server {
             request: tonic::Request<super::GetAccountStatusRequest>,
         ) -> std::result::Result<
             tonic::Response<super::GetAccountStatusResponse>,
+            tonic::Status,
+        >;
+        async fn sign_transaction(
+            &self,
+            request: tonic::Request<super::SignTransactionRequest>,
+        ) -> std::result::Result<
+            tonic::Response<super::SignTransactionResponse>,
             tonic::Status,
         >;
     }
@@ -446,6 +516,51 @@ pub mod secure_sign_server {
                     let inner = self.inner.clone();
                     let fut = async move {
                         let method = GetAccountStatusSvc(inner);
+                        let codec = tonic::codec::ProstCodec::default();
+                        let mut grpc = tonic::server::Grpc::new(codec)
+                            .apply_compression_config(
+                                accept_compression_encodings,
+                                send_compression_encodings,
+                            )
+                            .apply_max_message_size_config(
+                                max_decoding_message_size,
+                                max_encoding_message_size,
+                            );
+                        let res = grpc.unary(method, req).await;
+                        Ok(res)
+                    };
+                    Box::pin(fut)
+                }
+                "/servicepb.SecureSign/SignTransaction" => {
+                    #[allow(non_camel_case_types)]
+                    struct SignTransactionSvc<T: SecureSign>(pub Arc<T>);
+                    impl<
+                        T: SecureSign,
+                    > tonic::server::UnaryService<super::SignTransactionRequest>
+                    for SignTransactionSvc<T> {
+                        type Response = super::SignTransactionResponse;
+                        type Future = BoxFuture<
+                            tonic::Response<Self::Response>,
+                            tonic::Status,
+                        >;
+                        fn call(
+                            &mut self,
+                            request: tonic::Request<super::SignTransactionRequest>,
+                        ) -> Self::Future {
+                            let inner = Arc::clone(&self.0);
+                            let fut = async move {
+                                <T as SecureSign>::sign_transaction(&inner, request).await
+                            };
+                            Box::pin(fut)
+                        }
+                    }
+                    let accept_compression_encodings = self.accept_compression_encodings;
+                    let send_compression_encodings = self.send_compression_encodings;
+                    let max_decoding_message_size = self.max_decoding_message_size;
+                    let max_encoding_message_size = self.max_encoding_message_size;
+                    let inner = self.inner.clone();
+                    let fut = async move {
+                        let method = SignTransactionSvc(inner);
                         let codec = tonic::codec::ProstCodec::default();
                         let mut grpc = tonic::server::Grpc::new(codec)
                             .apply_compression_config(

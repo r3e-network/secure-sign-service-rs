@@ -11,6 +11,7 @@ pub mod vsock;
 use secure_sign_core::bytes::ToArray;
 use secure_sign_core::h160::{H160, H160_SIZE};
 use secure_sign_core::neo::consensus::{ConsensusPolicyError, ConsensusSigningPolicy};
+use secure_sign_core::neo::gas_sweep_policy::{GasSweepPolicyError, GasSweepSigningPolicy};
 use secure_sign_core::neo::sign::{SignError, Signer};
 use servicepb::{secure_sign_server::SecureSign, *};
 use tonic::async_trait;
@@ -32,6 +33,32 @@ impl IntoRpcStatus for SignError {
     }
 }
 
+impl IntoRpcStatus for GasSweepPolicyError {
+    fn into_rpc_status(self) -> tonic::Status {
+        match self {
+            GasSweepPolicyError::Disabled => {
+                tonic::Status::unimplemented("SignTransaction is disabled")
+            }
+            GasSweepPolicyError::AllowlistNotConfigured
+            | GasSweepPolicyError::SourceNotConfigured
+            | GasSweepPolicyError::NetworkNotAllowed { .. }
+            | GasSweepPolicyError::PublicKeyNotAllowed
+            | GasSweepPolicyError::SignerAccountMismatch
+            | GasSweepPolicyError::DestinationNotAllowlisted
+            | GasSweepPolicyError::FeeCapExceeded { .. }
+            | GasSweepPolicyError::ReserveViolation => {
+                tonic::Status::permission_denied(self.to_string())
+            }
+            GasSweepPolicyError::MissingIdempotencyKey
+            | GasSweepPolicyError::InvalidPublicKey
+            | GasSweepPolicyError::ExpectedFeeMismatch
+            | GasSweepPolicyError::ExpectedAmountMismatch
+            | GasSweepPolicyError::Tx(_)
+            | GasSweepPolicyError::Script(_) => tonic::Status::invalid_argument(self.to_string()),
+        }
+    }
+}
+
 #[allow(clippy::result_large_err)]
 pub fn to_h160_vec(source: Vec<Vec<u8>>) -> Result<Vec<H160>, tonic::Status> {
     let mut h160s = Vec::with_capacity(source.len());
@@ -49,6 +76,7 @@ pub fn to_h160_vec(source: Vec<Vec<u8>>) -> Result<Vec<H160>, tonic::Status> {
 pub struct DefaultSignService {
     signer: Signer,
     consensus_policy: Option<ConsensusSigningPolicy>,
+    gas_sweep_policy: GasSweepSigningPolicy,
 }
 
 impl DefaultSignService {
@@ -56,6 +84,8 @@ impl DefaultSignService {
         Self {
             signer,
             consensus_policy: None,
+            // Feature flag default OFF — economic signing refused until explicitly enabled.
+            gas_sweep_policy: GasSweepSigningPolicy::mainnet_default_off(),
         }
     }
 
@@ -63,7 +93,18 @@ impl DefaultSignService {
         Self {
             signer,
             consensus_policy: Some(ConsensusSigningPolicy::new(network)),
+            gas_sweep_policy: GasSweepSigningPolicy::new(network, false),
         }
+    }
+
+    pub fn with_gas_sweep_enabled(mut self, enabled: bool) -> Self {
+        self.gas_sweep_policy = self.gas_sweep_policy.with_enabled(enabled);
+        self
+    }
+
+    pub fn with_gas_sweep_policy(mut self, policy: GasSweepSigningPolicy) -> Self {
+        self.gas_sweep_policy = policy;
+        self
     }
 
     fn policy_status(err: ConsensusPolicyError) -> tonic::Status {
@@ -126,5 +167,38 @@ impl SecureSign for DefaultSignService {
             .map(|x| GetAccountStatusResponse { status: x as i32 })
             .map_err(|err| tonic::Status::invalid_argument(err.to_string()))
             .map(tonic::Response::new)
+    }
+
+    async fn sign_transaction(
+        &self,
+        req: tonic::Request<SignTransactionRequest>,
+    ) -> Result<tonic::Response<SignTransactionResponse>, tonic::Status> {
+        let req = req.into_inner();
+        // Enclave re-validates pure byte/policy invariants (incl. deploy-time destination allowlist).
+        // Chain-state dual-RPC binding is enforced on the gateway when enabled.
+        let validated = self
+            .gas_sweep_policy
+            .validate_sign_transaction(
+                &req.raw_tx,
+                &req.public_key,
+                req.network,
+                &req.idempotency_key,
+                req.expected_amount,
+                req.expected_fee_total,
+                None,
+            )
+            .map_err(|err| err.into_rpc_status())?;
+
+        let (signature, tx_hash) = self
+            .signer
+            .sign_transaction(&req.public_key, &validated.tx.hash_data, req.network)
+            .map_err(|err| err.into_rpc_status())?;
+
+        Ok(tonic::Response::new(SignTransactionResponse {
+            signature,
+            tx_hash: tx_hash.to_vec(),
+            idempotency_key: req.idempotency_key,
+            cache_hit: false,
+        }))
     }
 }
