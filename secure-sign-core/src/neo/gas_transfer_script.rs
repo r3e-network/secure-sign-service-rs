@@ -54,12 +54,12 @@ pub fn emit_push_integer(amount: u64) -> Vec<u8> {
     }
 
     let (op, size) = match bytes.len() {
-        1 => (0x00u8, 1usize), // PUSHINT8
-        2 => (0x01, 2),        // PUSHINT16
-        n if n <= 4 => (0x02, 4), // PUSHINT32
-        n if n <= 8 => (0x03, 8), // PUSHINT64
+        1 => (0x00u8, 1usize),      // PUSHINT8
+        2 => (0x01, 2),             // PUSHINT16
+        n if n <= 4 => (0x02, 4),   // PUSHINT32
+        n if n <= 8 => (0x03, 8),   // PUSHINT64
         n if n <= 16 => (0x04, 16), // PUSHINT128
-        _ => (0x05, 32),       // PUSHINT256
+        _ => (0x05, 32),            // PUSHINT256
     };
     let mut out = Vec::with_capacity(1 + size);
     out.push(op);
@@ -202,11 +202,17 @@ pub fn parse_allowlisted_gas_transfer_amount(
     let int_region = &script[1..script.len() - suffix_tail.len()];
     if &script[script.len() - suffix_tail.len()..] != suffix_tail.as_slice() {
         let to_push = emit_push_hash160(to);
-        if !script.windows(to_push.len()).any(|w| w == to_push.as_slice()) {
+        if !script
+            .windows(to_push.len())
+            .any(|w| w == to_push.as_slice())
+        {
             return Err(ScriptPolicyError::DestinationNotAllowlisted);
         }
         let gas_push = emit_push_hash160(&gas_script_hash());
-        if !script.windows(gas_push.len()).any(|w| w == gas_push.as_slice()) {
+        if !script
+            .windows(gas_push.len())
+            .any(|w| w == gas_push.as_slice())
+        {
             return Err(ScriptPolicyError::AssetNotGas);
         }
         return Err(ScriptPolicyError::RebuildMismatch);
@@ -285,11 +291,7 @@ mod tests {
     #[test]
     fn rejects_wrong_destination() {
         let amount = 100_000_000u64;
-        let bad = build_gas_transfer_script(
-            &test_from(),
-            &H160::from_le_bytes([0xde; 20]),
-            amount,
-        );
+        let bad = build_gas_transfer_script(&test_from(), &H160::from_le_bytes([0xde; 20]), amount);
         assert_eq!(
             validate_gas_transfer_script(&bad, &test_from(), &test_to(), amount),
             Err(ScriptPolicyError::DestinationNotAllowlisted)
@@ -308,8 +310,8 @@ mod tests {
         let from = test_from();
         let to = test_to();
         let neo = H160::from_le_bytes([
-            0xc3, 0xc2, 0xa9, 0xe1, 0xd0, 0x8e, 0x3a, 0x4d, 0x0e, 0x05, 0xc4, 0x8e, 0xa3, 0x05, 0xb3,
-            0xf2, 0xa0, 0x73, 0x40, 0xef,
+            0xc3, 0xc2, 0xa9, 0xe1, 0xd0, 0x8e, 0x3a, 0x4d, 0x0e, 0x05, 0xc4, 0x8e, 0xa3, 0x05,
+            0xb3, 0xf2, 0xa0, 0x73, 0x40, 0xef,
         ]);
         let mut bad = Vec::new();
         bad.push(0x0b);

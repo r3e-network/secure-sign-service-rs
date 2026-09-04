@@ -22,6 +22,7 @@ use secure_sign_core::neo::gas_sweep_constants::{
 };
 use secure_sign_core::neo::gas_sweep_policy::{
     build_deploy_policy, parse_neo3_address_to_script_hash, script_hash_from_public_key,
+    GasSweepValidationRequest,
 };
 use secure_sign_core::neo::gas_transfer_script::build_gas_transfer_script;
 use secure_sign_core::neo::tx::{
@@ -40,7 +41,10 @@ use url::Url;
 const PLAN_VERSION: u32 = 1;
 
 #[derive(Debug, Parser)]
-#[command(about = "Build, verify, sign, and optionally broadcast the daily council GAS sweep")]
+#[command(
+    version,
+    about = "Build, verify, sign, and optionally broadcast the daily council GAS sweep"
+)]
 struct Args {
     #[arg(long, env = "GAS_SWEEP_RPC_URLS")]
     rpc_urls: String,
@@ -399,15 +403,15 @@ async fn build_plan(
                 if verified.safe_balance < chain.safe_balance {
                     break;
                 }
-                policy.validate_sign_transaction(
-                    &raw,
+                policy.validate_sign_transaction(GasSweepValidationRequest {
+                    raw_tx: &raw,
                     public_key,
-                    args.network,
-                    &idempotency_key,
-                    amount,
-                    estimated_total,
-                    Some(verified.safe_balance),
-                )?;
+                    network: args.network,
+                    idempotency_key: &idempotency_key,
+                    expected_amount: amount,
+                    expected_fee_total: estimated_total,
+                    asserted_safe_balance: Some(verified.safe_balance),
+                })?;
                 return Ok(SweepPlan {
                     version: PLAN_VERSION,
                     day: day.to_owned(),

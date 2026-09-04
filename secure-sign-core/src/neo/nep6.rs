@@ -176,13 +176,13 @@ mod tests {
         assert!(accounts[0].contract.is_some());
         if let Some(contract) = accounts[0].contract.as_ref() {
             assert_eq!(contract.script.as_slice(), "test-script".as_bytes());
-            assert_eq!(contract.deployed, false);
+            assert!(!contract.deployed);
             assert!(contract.parameters.is_empty());
         }
         assert!(accounts[1].contract.is_none());
 
         // assert is_locked
-        assert_eq!(accounts[0].is_locked, false);
-        assert_eq!(accounts[1].is_locked, false);
+        assert!(!accounts[0].is_locked);
+        assert!(!accounts[1].is_locked);
     }
 }

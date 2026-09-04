@@ -78,7 +78,7 @@ enum Commands {
 
 #[derive(Parser)]
 #[command(author = "R3E Network Team")]
-#[command(version = "0.1.0")]
+#[command(version)]
 #[command(about = "A rust implementation for secure-sign-service based on sgx")]
 struct Cli {
     #[command(subcommand)]

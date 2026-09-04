@@ -25,8 +25,8 @@ enum Commands {
 
 #[derive(Parser)]
 #[command(author = "R3E Network Team")]
-#[command(version = "0.1.0")]
-#[command(about = "A rust implementation for secure-sign-service")]
+#[command(version)]
+#[command(about = "Neo Signer RS secure signing service")]
 struct Cli {
     #[command(subcommand)]
     commands: Commands,
