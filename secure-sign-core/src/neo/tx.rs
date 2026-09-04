@@ -162,9 +162,9 @@ impl UnsignedTransaction {
         self.system_fee.checked_add(self.network_fee)
     }
 
-    /// Neo N3 transaction hash (double SHA256 of unsigned hash data), LE bytes.
+    /// Neo N3 transaction hash (single SHA256 of unsigned hash data), LE bytes.
     pub fn tx_hash_le(&self) -> [u8; 32] {
-        self.hash_data.sha256().sha256()
+        self.hash_data.sha256()
     }
 }
 
@@ -228,6 +228,22 @@ mod tests {
         assert_eq!(tx.signers[0].account, test_from());
         assert_eq!(tx.signers[0].scopes, WITNESS_SCOPE_CALLED_BY_ENTRY);
         assert!(tx.script.windows(20).any(|w| w == test_to().as_le_bytes()));
+    }
+
+    #[test]
+    fn transaction_hash_matches_neo_single_sha256() {
+        // Canonical unsigned transaction fixture. Neo's Uint256 display order
+        // is reversed elsewhere; this method intentionally returns digest bytes.
+        let raw = hex::decode(
+            "0001000000010000000000000001000000000000006400000001\
+             000000000000000000000000000000000000000001000140",
+        )
+        .unwrap();
+        let tx = decode_unsigned_transaction(&raw).unwrap();
+        assert_eq!(
+            hex::encode(tx.tx_hash_le()),
+            "166fac15c98704128d58f9a46d1946647970b997478494d7e4bf3070d28da195"
+        );
     }
 
     #[test]

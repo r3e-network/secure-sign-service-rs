@@ -275,8 +275,8 @@ impl Signer {
             .map(|ref sign| sign.into())
             .map_err(|err| SignError::EcdsaSignError(err.to_string()))?;
 
-        // Neo N3 tx hash is double-SHA256 of unsigned hash data (LE byte order).
-        let tx_hash = unsigned_hash_data.sha256().sha256();
+        // Neo N3 transaction IDs use one SHA-256 over unsigned hash data.
+        let tx_hash = unsigned_hash_data.sha256();
         Ok((signature, tx_hash))
     }
 

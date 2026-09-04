@@ -700,4 +700,18 @@ mod tests {
         let text = format!("0x{}", "01".repeat(32));
         assert_eq!(tx_hash_le_from_string(&text).unwrap(), vec![1u8; 32]);
     }
+
+    #[test]
+    fn transaction_id_matches_neo_display_order() {
+        let raw = hex::decode(
+            "0001000000010000000000000001000000000000006400000001\
+             000000000000000000000000000000000000000001000140",
+        )
+        .unwrap();
+        let tx = decode_unsigned_transaction(&raw).unwrap();
+        assert_eq!(
+            transaction_hash(&tx),
+            "0x95a18dd27030bfe4d794844797b970796446196da4f9588d120487c915ac6f16"
+        );
+    }
 }

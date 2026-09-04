@@ -698,6 +698,13 @@ mod tests {
     }
 
     #[test]
+    fn neo_duplicate_broadcast_errors_are_idempotent() {
+        assert!(is_duplicate_broadcast("Inventory already exists on chain"));
+        assert!(is_duplicate_broadcast("Already in the mempool"));
+        assert!(!is_duplicate_broadcast("Insufficient network fee"));
+    }
+
+    #[test]
     fn agreement_uses_safe_balance_and_rejects_height_fee_or_simulation_failures() {
         let tx = transaction(1_080);
         let first = snapshot(1_000);
