@@ -87,9 +87,15 @@ install -m 0600 "$WALLET" "$BUILD_CONTEXT/nep6-wallet.json"
 install -m 0644 "$SCRIPT_DIR/Dockerfile" "$BUILD_CONTEXT/Dockerfile"
 
 echo "Building Docker image $IMAGE from an ephemeral context"
+BUILD_ARGS=(
+    --build-arg BIN=secure-sign-vsock
+    --build-arg WALLET=nep6-wallet.json
+    --build-arg "ENABLE_SIGN_TRANSACTION=${ENABLE_SIGN_TRANSACTION:-false}"
+    --build-arg "GAS_SWEEP_DESTINATION_ADDRESS=${GAS_SWEEP_DESTINATION_ADDRESS:-}"
+    --build-arg "GAS_SWEEP_DESTINATION_SCRIPT_HASH=${GAS_SWEEP_DESTINATION_SCRIPT_HASH:-}"
+)
 docker build \
-    --build-arg BIN=secure-sign-vsock \
-    --build-arg WALLET=nep6-wallet.json \
+    "${BUILD_ARGS[@]}" \
     --tag "$IMAGE" \
     "$BUILD_CONTEXT"
 

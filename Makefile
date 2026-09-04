@@ -2,6 +2,7 @@
 # All Rights Reserved
 
 ARCH ?= $(shell uname -m)
+ROOT_DIR := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 
 # rustup target add x86_64-unknown-linux-musl or rustup target add aarch64-unknown-linux-musl
 ifneq ($(filter $(ARCH),x86_64 amd64),)
@@ -39,9 +40,24 @@ gateway:
 	cargo build --release -p secure-sign-gateway
 	cp target/release/secure-sign-gateway target/secure-sign-gateway
 
+sweeper:
+	cargo build --release -p secure-sign-sweeper
+	cp target/release/secure-sign-sweeper target/secure-sign-sweeper
+
+linux-arm64:
+	CC_aarch64_unknown_linux_musl="$(ROOT_DIR)/scripts/cross/zig-aarch64-linux-musl-cc" \
+	AR_aarch64_unknown_linux_musl="$(ROOT_DIR)/scripts/cross/zig-aarch64-linux-musl-ar" \
+	CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER="$(ROOT_DIR)/scripts/cross/zig-aarch64-linux-musl-cc" \
+	cargo build --release --target aarch64-unknown-linux-musl \
+		-p secure-sign --no-default-features --features vsock \
+		-p secure-sign-gateway -p secure-sign-sweeper
+	cp target/aarch64-unknown-linux-musl/release/secure-sign target/secure-sign-vsock
+	cp target/aarch64-unknown-linux-musl/release/secure-sign-gateway target/secure-sign-gateway
+	cp target/aarch64-unknown-linux-musl/release/secure-sign-sweeper target/secure-sign-sweeper
+
 clean:
 	cargo clean
-	rm -f target/secure-sign-tcp target/secure-sign-vsock target/secure-sign-tools
+	rm -f target/secure-sign-tcp target/secure-sign-vsock target/secure-sign-tools target/secure-sign-sweeper
 	cd secure-sign-sgx-enclave && make clean
 	cd secure-sign-sgx && make clean
 
@@ -53,6 +69,8 @@ help:
 	@echo "  sgx   -- build sgx server(for intel sgx enclave), output is secure-sign-sgx/target/secure-sign-sgx"
 	@echo "  tools -- build tools(for mock, decrypt wallet and get account status), output is target/secure-sign-tools"
 	@echo "  gateway -- build the consensus-only TCP-to-vsock gateway"
+	@echo "  sweeper -- build the deterministic daily GAS sweep client"
+	@echo "  linux-arm64 -- cross-build all Nitro parent/enclave release binaries"
 	@echo "  clean -- clean all build artifacts"
 	@echo "  help  -- show this help message"
 	@echo ""

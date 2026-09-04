@@ -196,6 +196,14 @@ public key, and durably rejects conflicting prepare/commit or block signatures
 for the same consensus slot. Change-view and recovery messages remain retryable
 because their payloads can legitimately evolve within a view.
 
+The optional daily GAS sweep is a separate, fail-closed economic path. It uses
+two independent HTTPS Neo RPC providers, an exact destination allowlist, live
+fee/simulation agreement, a minimum 1 GAS reserve, an Asia/Shanghai daily
+idempotency journal, and local signature verification before broadcast. The
+economic path takes the shared signing permit only for the enclave call, so RPC
+latency cannot delay consensus. See [docs/IMPLEMENTATION.md](docs/IMPLEMENTATION.md)
+for deployment, scheduling, rollback, and GrokBot-trigger rules.
+
 For a production installation, set `SIGNER_BASE`, `SIGNER_TOOL`,
 `KMS_CIPHERTEXT_BLOB_PATH`, and `SIGNER_PUBLIC_KEY` in the KMS unlock service.
 When `SIGNER_PUBLIC_KEY` is configured, the parent instance does not need a

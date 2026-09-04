@@ -68,6 +68,9 @@ pub enum GasSweepPolicyError {
 
     #[error("gas sweep policy: idempotency key required")]
     MissingIdempotencyKey,
+
+    #[error("gas sweep policy: invalid idempotency key")]
+    InvalidIdempotencyKey,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, thiserror::Error)]
@@ -83,6 +86,9 @@ pub enum GasSweepConfigError {
 
     #[error("gas sweep config: destination allowlist required when SignTransaction is enabled")]
     DestinationRequiredWhenEnabled,
+
+    #[error("gas sweep config: destination must not be the signer source account")]
+    DestinationMatchesSource,
 }
 
 #[derive(Debug, Clone, Eq, PartialEq)]
@@ -197,7 +203,7 @@ impl GasSweepSigningPolicy {
         idempotency_key: &str,
         expected_amount: u64,
         expected_fee_total: u64,
-        asserted_balance: Option<u64>,
+        asserted_safe_balance: Option<u64>,
     ) -> Result<ValidatedGasSweep, GasSweepPolicyError> {
         if !self.enabled {
             return Err(GasSweepPolicyError::Disabled);
@@ -211,6 +217,13 @@ impl GasSweepSigningPolicy {
         if idempotency_key.is_empty() {
             return Err(GasSweepPolicyError::MissingIdempotencyKey);
         }
+        if idempotency_key.len() > 64
+            || !idempotency_key.bytes().all(|byte| {
+                byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b':' | b'/' | b'-')
+            })
+        {
+            return Err(GasSweepPolicyError::InvalidIdempotencyKey);
+        }
         self.validate_network(network)?;
         self.validate_public_key(public_key)?;
 
@@ -222,12 +235,10 @@ impl GasSweepSigningPolicy {
             return Err(GasSweepPolicyError::SignerAccountMismatch);
         }
 
-        let fee_total = tx
-            .fee_total()
-            .ok_or(GasSweepPolicyError::FeeCapExceeded {
-                actual: u64::MAX,
-                cap: FEE_CAP_FRACTIONS,
-            })?;
+        let fee_total = tx.fee_total().ok_or(GasSweepPolicyError::FeeCapExceeded {
+            actual: u64::MAX,
+            cap: FEE_CAP_FRACTIONS,
+        })?;
         if fee_total > FEE_CAP_FRACTIONS {
             return Err(GasSweepPolicyError::FeeCapExceeded {
                 actual: fee_total,
@@ -245,8 +256,7 @@ impl GasSweepSigningPolicy {
                 }
                 other => GasSweepPolicyError::Script(other),
             })?;
-        let amount =
-            parse_allowlisted_gas_transfer_amount(&tx.script, &source_hash, &destination)?;
+        let amount = parse_allowlisted_gas_transfer_amount(&tx.script, &source_hash, &destination)?;
         if amount != expected_amount {
             return Err(GasSweepPolicyError::ExpectedAmountMismatch);
         }
@@ -259,11 +269,11 @@ impl GasSweepSigningPolicy {
             return Err(GasSweepPolicyError::DestinationNotAllowlisted);
         }
 
-        if let Some(balance) = asserted_balance {
+        if let Some(balance) = asserted_safe_balance {
             let need = ONE_GAS_FRACTIONS
                 .checked_add(fee_total)
                 .and_then(|v| v.checked_add(amount));
-            if need != Some(balance) {
+            if !matches!(need, Some(required) if required <= balance) {
                 return Err(GasSweepPolicyError::ReserveViolation);
             }
         }
@@ -354,6 +364,9 @@ pub fn build_deploy_policy(
     let mut policy =
         GasSweepSigningPolicy::new(network, enabled).with_source_public_key(source_public_key)?;
     if let Some(dest) = destination {
+        if policy.source_script_hash() == Some(dest) {
+            return Err(GasSweepConfigError::DestinationMatchesSource);
+        }
         policy = policy.with_allowlisted_destination(dest);
     }
     Ok(policy)
@@ -468,6 +481,31 @@ mod tests {
             )
             .unwrap();
         assert_eq!(validated.amount, amount);
+        policy
+            .validate_sign_transaction(
+                &tx,
+                &test_source_pk(),
+                GAS_SWEEP_NETWORK_MAGIC,
+                "idem-new-rewards",
+                amount,
+                fees,
+                Some(ONE_GAS_FRACTIONS + fees + amount + 1),
+            )
+            .unwrap();
+        assert_eq!(
+            policy
+                .validate_sign_transaction(
+                    &tx,
+                    &test_source_pk(),
+                    GAS_SWEEP_NETWORK_MAGIC,
+                    "idem-insufficient",
+                    amount,
+                    fees,
+                    Some(ONE_GAS_FRACTIONS + fees + amount - 1),
+                )
+                .unwrap_err(),
+            GasSweepPolicyError::ReserveViolation
+        );
         assert!(is_allowlisted_destination(&policy, &test_dest_a()));
     }
 
@@ -478,14 +516,8 @@ mod tests {
         let amount = 100_000_000u64;
         let fees = 2_000u64;
         let bad_script = build_gas_transfer_script(&test_source_hash(), &test_dest_b(), amount);
-        let tx = encode_unsigned_transaction(
-            42,
-            1000,
-            1000,
-            1000,
-            &test_source_hash(),
-            &bad_script,
-        );
+        let tx =
+            encode_unsigned_transaction(42, 1000, 1000, 1000, &test_source_hash(), &bad_script);
         let err = policy
             .validate_sign_transaction(
                 &tx,
@@ -501,14 +533,50 @@ mod tests {
     }
 
     #[test]
+    fn idempotency_key_is_bounded_and_journal_safe() {
+        let policy = test_policy(true);
+        let tx = good_tx(1, 1000, 1000);
+        for key in ["unsafe\tkey", "unsafe\nkey", "unsafe key"] {
+            assert_eq!(
+                policy
+                    .validate_sign_transaction(
+                        &tx,
+                        &test_source_pk(),
+                        GAS_SWEEP_NETWORK_MAGIC,
+                        key,
+                        1,
+                        2000,
+                        None,
+                    )
+                    .unwrap_err(),
+                GasSweepPolicyError::InvalidIdempotencyKey
+            );
+        }
+        assert_eq!(
+            policy
+                .validate_sign_transaction(
+                    &tx,
+                    &test_source_pk(),
+                    GAS_SWEEP_NETWORK_MAGIC,
+                    &"a".repeat(65),
+                    1,
+                    2000,
+                    None,
+                )
+                .unwrap_err(),
+            GasSweepPolicyError::InvalidIdempotencyKey
+        );
+    }
+
+    #[test]
     fn rejects_wrong_asset_and_bad_scope() {
         let policy = test_policy(true);
         let amount = 1u64;
         let from = test_source_hash();
         let to = test_dest_a();
         let neo = H160::from_le_bytes([
-            0xc3, 0xc2, 0xa9, 0xe1, 0xd0, 0x8e, 0x3a, 0x4d, 0x0e, 0x05, 0xc4, 0x8e, 0xa3, 0x05, 0xb3,
-            0xf2, 0xa0, 0x73, 0x40, 0xef,
+            0xc3, 0xc2, 0xa9, 0xe1, 0xd0, 0x8e, 0x3a, 0x4d, 0x0e, 0x05, 0xc4, 0x8e, 0xa3, 0x05,
+            0xb3, 0xf2, 0xa0, 0x73, 0x40, 0xef,
         ]);
         let mut script = alloc::vec![0x0b];
         script.extend_from_slice(&crate::neo::gas_transfer_script::emit_push_integer(amount));
@@ -541,7 +609,9 @@ mod tests {
                 None
             ),
             Err(GasSweepPolicyError::Script(ScriptPolicyError::AssetNotGas))
-                | Err(GasSweepPolicyError::Script(ScriptPolicyError::RebuildMismatch))
+                | Err(GasSweepPolicyError::Script(
+                    ScriptPolicyError::RebuildMismatch
+                ))
         ));
 
         let good_script = build_gas_transfer_script(&from, &to, amount);
@@ -558,15 +628,17 @@ mod tests {
                 2000,
                 None
             ),
-            Err(GasSweepPolicyError::Tx(TxDecodeError::InvalidWitnessScope(0x80)))
+            Err(GasSweepPolicyError::Tx(TxDecodeError::InvalidWitnessScope(
+                0x80
+            )))
         ));
     }
 
     #[test]
     fn build_deploy_policy_requires_destination_when_enabled() {
         let pk = test_source_pk();
-        let err = build_deploy_policy(GAS_SWEEP_NETWORK_MAGIC, true, pk.clone(), None, None)
-            .unwrap_err();
+        let err =
+            build_deploy_policy(GAS_SWEEP_NETWORK_MAGIC, true, pk.clone(), None, None).unwrap_err();
         assert_eq!(err, GasSweepConfigError::DestinationRequiredWhenEnabled);
 
         let dest_hex = hex::encode(test_dest_a().as_le_bytes());
@@ -580,5 +652,19 @@ mod tests {
         .unwrap();
         assert!(policy.enabled());
         assert_eq!(policy.allowlisted_destination(), Some(test_dest_a()));
+    }
+
+    #[test]
+    fn build_deploy_policy_rejects_source_as_destination() {
+        let pk = hex::decode("036b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c296")
+            .unwrap();
+        let source = script_hash_from_public_key(&pk).unwrap();
+        let destination = hex::encode(source.as_le_bytes());
+
+        assert_eq!(
+            build_deploy_policy(GAS_SWEEP_NETWORK_MAGIC, true, pk, None, Some(&destination),)
+                .unwrap_err(),
+            GasSweepConfigError::DestinationMatchesSource
+        );
     }
 }

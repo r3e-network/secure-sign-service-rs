@@ -4,10 +4,12 @@ resolver = "2"
 
 members = [ 
     "secure-sign",
+    "secure-sign-neo-rpc",
     "secure-sign-core",
     "secure-sign-gateway",
     "secure-sign-rpc",
     "secure-sign-nitro",
+    "secure-sign-sweeper",
 ]
 
 [profile.release]

@@ -50,6 +50,7 @@ impl IntoRpcStatus for GasSweepPolicyError {
                 tonic::Status::permission_denied(self.to_string())
             }
             GasSweepPolicyError::MissingIdempotencyKey
+            | GasSweepPolicyError::InvalidIdempotencyKey
             | GasSweepPolicyError::InvalidPublicKey
             | GasSweepPolicyError::ExpectedFeeMismatch
             | GasSweepPolicyError::ExpectedAmountMismatch
