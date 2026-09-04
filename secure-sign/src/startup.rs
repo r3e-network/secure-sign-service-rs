@@ -2,14 +2,20 @@
 // All Rights Reserved
 
 use std::error::Error;
-use std::string::String;
+#[cfg(feature = "vsock")]
+use std::fs::OpenOptions;
+#[cfg(feature = "vsock")]
+use std::io::Write;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+#[cfg(feature = "vsock")]
+use std::os::unix::fs::OpenOptionsExt;
+use std::string::String;
 
 use secure_sign_core::neo::sign::{Account, Signer};
 use secure_sign_rpc::servicepb::secure_sign_server::SecureSignServer;
-use secure_sign_rpc::startup::StartSigner;
 #[cfg(feature = "vsock")]
 use secure_sign_rpc::startup::RecipientProvider;
+use secure_sign_rpc::startup::StartSigner;
 use secure_sign_rpc::DefaultSignService;
 
 use tokio::sync::oneshot;
@@ -18,13 +24,9 @@ use tonic::transport::Server;
 #[cfg(feature = "vsock")]
 use rsa::pkcs8::{EncodePrivateKey, EncodePublicKey};
 #[cfg(feature = "vsock")]
-use rsa::Oaep;
-#[cfg(feature = "vsock")]
 use rsa::RsaPrivateKey;
 #[cfg(feature = "vsock")]
 use secure_sign_nitro::Nsm;
-#[cfg(feature = "vsock")]
-use sha2::Sha256;
 #[cfg(feature = "vsock")]
 use std::process::Command;
 #[cfg(feature = "vsock")]
@@ -101,7 +103,9 @@ impl StartSigner for DefaultStartSigner {
         let enable = self.enable_sign_transaction;
         let dest = self.gas_sweep_destination.clone();
         let dest_hash = self.gas_sweep_destination_script_hash.clone();
-        let network_for_policy = self.consensus_network.unwrap_or(secure_sign_core::neo::consensus::NEO_N3_MAINNET_MAGIC);
+        let network_for_policy = self
+            .consensus_network
+            .unwrap_or(secure_sign_core::neo::consensus::NEO_N3_MAINNET_MAGIC);
         let gas_sweep_policy = secure_sign_core::neo::gas_sweep_policy::build_deploy_policy(
             network_for_policy,
             enable,
@@ -161,23 +165,29 @@ impl NitroRecipientProvider {
         Self { private_key: None }
     }
 
-    fn hex_prefix(bytes: &[u8], max: usize) -> String {
-        bytes
-            .iter()
-            .take(max)
-            .map(|b| format!("{:02x}", b))
-            .collect::<Vec<_>>()
-            .join("")
+    fn create_private_file(path: &str, contents: &[u8]) -> Result<(), Box<dyn Error>> {
+        let mut file = OpenOptions::new()
+            .create_new(true)
+            .write(true)
+            .mode(0o600)
+            .open(path)?;
+        file.write_all(contents)?;
+        file.sync_all()?;
+        Ok(())
     }
 
-    fn decrypt_cfr_with_openssl(private_key: &RsaPrivateKey, cfr: &[u8]) -> Result<Vec<u8>, Box<dyn Error>> {
+    fn decrypt_cfr_with_openssl(
+        private_key: &RsaPrivateKey,
+        cfr: &[u8],
+    ) -> Result<Vec<u8>, Box<dyn Error>> {
         let nonce = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_err(|err| std::io::Error::other(format!("time error: {}", err)))?
             .as_nanos();
-        let key_path = format!("/tmp/secure-sign-recipient-key-{}.der", nonce);
-        let cfr_path = format!("/tmp/secure-sign-recipient-cfr-{}.der", nonce);
-        let out_path = format!("/tmp/secure-sign-recipient-out-{}.bin", nonce);
+        let unique = format!("{}-{nonce}", std::process::id());
+        let key_path = format!("/tmp/secure-sign-recipient-key-{unique}.der");
+        let cfr_path = format!("/tmp/secure-sign-recipient-cfr-{unique}.der");
+        let out_path = format!("/tmp/secure-sign-recipient-out-{unique}.bin");
 
         // RAII guard: ensures all temporary files are removed on any exit path.
         struct TempFileGuard<'a> {
@@ -198,8 +208,9 @@ impl NitroRecipientProvider {
             .to_pkcs8_der()
             .map_err(|err| std::io::Error::other(format!("Encode private key failed: {}", err)))?;
 
-        std::fs::write(&key_path, key_der.as_bytes())?;
-        std::fs::write(&cfr_path, cfr)?;
+        Self::create_private_file(&key_path, key_der.as_bytes())?;
+        Self::create_private_file(&cfr_path, cfr)?;
+        Self::create_private_file(&out_path, &[])?;
 
         let output = Command::new("openssl")
             .args([
@@ -223,22 +234,14 @@ impl NitroRecipientProvider {
             return std::fs::read(&out_path).map_err(Into::into);
         }
 
-        // Fallback: some integrations may return a raw RSA-OAEP ciphertext blob.
-        // Try direct OAEP decrypt before returning an error.
-        if let Ok(plaintext) = private_key.decrypt(Oaep::new::<Sha256>(), cfr) {
-            return Ok(plaintext);
-        }
-
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        let prefix = Self::hex_prefix(cfr, 16);
         Err(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
             format!(
-                "openssl cms decrypt failed (status: {}, stderr: {:?}), raw RSA-OAEP fallback also failed, ciphertext length: {}, prefix(16B): {}",
+                "openssl CMS decrypt failed (status: {}, stderr: {:?}), ciphertext length: {}",
                 output.status,
                 stderr,
                 cfr.len(),
-                prefix,
             ),
         )
         .into())
@@ -283,7 +286,8 @@ impl RecipientProvider for NitroRecipientProvider {
             .into());
         };
 
-        let wallet_passphrase = Self::decrypt_cfr_with_openssl(&private_key, ciphertext_for_recipient)?;
+        let wallet_passphrase =
+            Self::decrypt_cfr_with_openssl(&private_key, ciphertext_for_recipient)?;
 
         Ok(Zeroizing::new(wallet_passphrase))
     }

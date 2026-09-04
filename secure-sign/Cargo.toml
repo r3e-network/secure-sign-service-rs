@@ -18,7 +18,7 @@ bytes      = { version = "1" }
 
 log        = { version = "0.4" }
 env_logger = { version = "0.11" }
-clap       = { version = "4.5", features = ["derive"] }
+clap       = { version = "4.5", features = ["derive", "env"] }
 
 zeroize   = { version = "1", features = ["zeroize_derive"] }
 rpassword = { version = "7.3" }
@@ -26,12 +26,13 @@ rpassword = { version = "7.3" }
 aes-gcm = { version = "0.10" }
 p256    = { version = "0.13", default-features = false, features = ["arithmetic", "ecdsa", "ecdh"]}
 
-rsa  = { version = "0.9", optional = true }
-sha2 = { version = "0.10", optional = true }
+# Used only to generate an ephemeral KMS recipient key and encode it as PKCS#8.
+# RSA decrypt/sign operations are deliberately not exposed through this crate.
+rsa = { version = "0.9", optional = true }
 
 # sgx_types = { rev = "v1.1.6", git = "https://github.com/apache/teaclave-sgx-sdk.git", optional = true }
 
 [features]
 tcp   = []
-vsock = ["dep:secure-sign-nitro", "dep:rsa", "dep:sha2"]
+vsock = ["dep:secure-sign-nitro", "dep:rsa"]
 tools = []

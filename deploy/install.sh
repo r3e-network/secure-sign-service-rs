@@ -15,6 +15,7 @@ SIGNER_ENV_PATH="${SIGNER_ENV_PATH:-/home/ec2-user/neo/secure/kms-auto-unlock.en
 for file in \
   "$ROOT_DIR/target/secure-sign-tools" \
   "$ROOT_DIR/target/secure-sign-gateway" \
+  "$ROOT_DIR/target/secure-sign-sweeper" \
   "$ROOT_DIR/scripts/auto-unlock-kms-recipient.sh" \
   "$EIF_PATH" \
   "$CIPHERTEXT_PATH" \
@@ -31,6 +32,7 @@ install -d -o neo-signer -g neo-signer -m 0700 /var/lib/neo-signer
 install -d -m 0750 /etc/neo-signer
 install -m 0755 "$ROOT_DIR/target/secure-sign-tools" /opt/neo-signer/bin/
 install -m 0755 "$ROOT_DIR/target/secure-sign-gateway" /opt/neo-signer/bin/
+install -m 0755 "$ROOT_DIR/target/secure-sign-sweeper" /opt/neo-signer/bin/
 install -m 0755 "$ROOT_DIR/scripts/auto-unlock-kms-recipient.sh" /opt/neo-signer/bin/
 install -m 0755 "$ROOT_DIR/deploy/run-gateway.sh" /opt/neo-signer/bin/
 install -m 0755 "$ROOT_DIR/deploy/health-check.sh" /opt/neo-signer/bin/

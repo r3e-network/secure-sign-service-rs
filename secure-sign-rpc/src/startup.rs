@@ -76,8 +76,11 @@ struct StartupState<Start, Random, Recipient> {
     recipient_attestation_prepared: bool,
 }
 
-impl<Start: StartSigner, Random: CryptRandom + Send + Sync + 'static, Recipient: RecipientProvider>
-    StartupState<Start, Random, Recipient>
+impl<
+        Start: StartSigner,
+        Random: CryptRandom + Send + Sync + 'static,
+        Recipient: RecipientProvider,
+    > StartupState<Start, Random, Recipient>
 {
     fn start(&mut self, accounts: Vec<Account>) -> Result<(), Box<dyn Error>> {
         let start = self.start.take().ok_or("Start signer not set")?;
@@ -95,7 +98,12 @@ pub struct DefaultStartupService<Start, Random, Recipient> {
 }
 
 impl<Start, Random, Recipient> DefaultStartupService<Start, Random, Recipient> {
-    pub fn new(wallet: Nep6Wallet, crypt_random: Random, start: Start, recipient: Recipient) -> Self {
+    pub fn new(
+        wallet: Nep6Wallet,
+        crypt_random: Random,
+        start: Start,
+        recipient: Recipient,
+    ) -> Self {
         Self {
             state: Arc::new(Mutex::new(StartupState {
                 wallet,
@@ -206,12 +214,13 @@ impl<
             return Err(tonic::Status::failed_precondition("Start signer not set"));
         }
 
-        let attestation_document = state
-            .recipient
-            .prepare_attestation_document()
-            .map_err(|err| {
-                tonic::Status::internal(format!("Prepare recipient attestation error: {}", err))
-            })?;
+        let attestation_document =
+            state
+                .recipient
+                .prepare_attestation_document()
+                .map_err(|err| {
+                    tonic::Status::internal(format!("Prepare recipient attestation error: {}", err))
+                })?;
 
         state.recipient_attestation_prepared = true;
 

@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+args=()
+for arg in "$@"; do
+  case "$arg" in
+    --target=*) ;;
+    *crt1.o|*crti.o|*crtn.o|*crtbegin.o|*crtend.o) ;;
+    *) args+=("$arg") ;;
+  esac
+done
+
+exec zig cc -target aarch64-linux-musl "${args[@]}"

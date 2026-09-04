@@ -7,15 +7,17 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
+use chrono::{DateTime, FixedOffset, Utc};
 use clap::Parser;
 use secure_sign_core::h160::{H160, H160_SIZE};
 use secure_sign_core::neo::consensus::{
     ConsensusMessageMetadata, ConsensusMessageType, ConsensusSigningPolicy,
 };
+use secure_sign_core::neo::gas_sweep_policy::{build_deploy_policy, GasSweepSigningPolicy};
 use secure_sign_core::neo::sign::Signer;
+use secure_sign_neo_rpc::DualRpcVerifier;
 use secure_sign_rpc::servicepb::secure_sign_client::SecureSignClient;
 use secure_sign_rpc::servicepb::secure_sign_server::{SecureSign, SecureSignServer};
-use secure_sign_core::neo::gas_sweep_policy::{build_deploy_policy, GasSweepSigningPolicy};
 use secure_sign_rpc::servicepb::{
     GetAccountStatusRequest, GetAccountStatusResponse, SignBlockRequest, SignBlockResponse,
     SignExtensiblePayloadRequest, SignExtensiblePayloadResponse, SignTransactionRequest,
@@ -66,8 +68,31 @@ struct Args {
     gas_sweep_destination_script_hash: Option<String>,
 
     /// Separate timeout for economic SignTransaction path (ms).
-    #[arg(long, default_value_t = 10_000)]
+    #[arg(long, default_value_t = 900, env = "SIGNER_ECONOMIC_TIMEOUT_MS")]
     economic_timeout_ms: u64,
+
+    /// Exactly two independent HTTPS Neo N3 RPC endpoints, comma-separated.
+    #[arg(long, env = "GAS_SWEEP_RPC_URLS")]
+    gas_sweep_rpc_urls: Option<String>,
+
+    /// Per-request timeout for chain-state verification.
+    #[arg(long, default_value_t = 4_000, env = "GAS_SWEEP_RPC_TIMEOUT_MS")]
+    gas_sweep_rpc_timeout_ms: u64,
+
+    /// Maximum accepted height difference between the two RPC nodes.
+    #[arg(long, default_value_t = 10, env = "GAS_SWEEP_MAX_HEIGHT_SKEW")]
+    gas_sweep_max_height_skew: u32,
+
+    /// Maximum valid-until distance from the lower of the two RPC tips.
+    #[arg(long, default_value_t = 120, env = "GAS_SWEEP_MAX_VALID_UNTIL_DELTA")]
+    gas_sweep_max_valid_until_delta: u32,
+}
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+enum JournalMatch {
+    Vacant,
+    Matching,
+    Conflicting,
 }
 
 struct AntiEquivocationJournal {
@@ -136,6 +161,14 @@ impl AntiEquivocationJournal {
         self.entries.insert(slot.to_owned(), digest.to_owned());
         Ok(())
     }
+
+    fn matches(&self, slot: &str, digest: &str) -> JournalMatch {
+        match self.entries.get(slot) {
+            None => JournalMatch::Vacant,
+            Some(previous) if previous == digest => JournalMatch::Matching,
+            Some(_) => JournalMatch::Conflicting,
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -143,10 +176,11 @@ struct Gateway {
     client: SecureSignClient<Channel>,
     policy: ConsensusSigningPolicy,
     gas_sweep_policy: GasSweepSigningPolicy,
+    gas_sweep_rpc: Option<Arc<DualRpcVerifier>>,
     public_key: Arc<Vec<u8>>,
     journal: Arc<Mutex<AntiEquivocationJournal>>,
     single_flight: Arc<Semaphore>,
-    /// Low-priority economic path; never shares consensus single_flight.
+    /// Serializes economic requests while RPC verification runs.
     economic_flight: Arc<Semaphore>,
     timeout: Duration,
     economic_timeout: Duration,
@@ -202,17 +236,24 @@ impl Gateway {
             .map_err(|_| Status::unavailable("signing gateway is shutting down"))
     }
 
-    async fn economic_permit(&self) -> Result<tokio::sync::OwnedSemaphorePermit, Status> {
-        // Do not starve dBFT: refuse economic signing if consensus permit is held.
-        if self.single_flight.available_permits() == 0 {
-            return Err(Status::resource_exhausted(
-                "consensus signing in flight; economic sign refused",
-            ));
-        }
+    fn economic_gate(&self) -> Result<tokio::sync::OwnedSemaphorePermit, &'static str> {
         self.economic_flight
             .clone()
             .try_acquire_owned()
-            .map_err(|_| Status::resource_exhausted("economic signing already in flight"))
+            .map_err(|_| "economic signing already in flight")
+    }
+
+    fn economic_signing_permit(&self) -> Result<tokio::sync::OwnedSemaphorePermit, &'static str> {
+        // The consensus semaphore is held only for the enclave signing call. RPC
+        // checks run before this point and therefore cannot delay dBFT traffic.
+        self.single_flight
+            .clone()
+            .try_acquire_owned()
+            .map_err(|_| "consensus signing in flight; economic sign refused")
+    }
+
+    async fn economic_journal_match(&self, slot: &str, digest: &str) -> JournalMatch {
+        self.journal.lock().await.matches(slot, digest)
     }
 }
 
@@ -284,13 +325,16 @@ impl SecureSign for Gateway {
         &self,
         request: Request<SignTransactionRequest>,
     ) -> Result<Response<SignTransactionResponse>, Status> {
-        let _permit = self.economic_permit().await?;
+        let _economic_gate = self.economic_gate().map_err(Status::resource_exhausted)?;
         let request = request.into_inner();
         if request.public_key != *self.public_key {
             return Err(Status::permission_denied("public key is not allowed"));
         }
-        // Fail-closed policy including deploy-time destination allowlist.
-        self.gas_sweep_policy
+
+        // Reject malformed or non-allowlisted transactions before making any
+        // network request. Balance binding is repeated below after dual-RPC proof.
+        let preliminary = self
+            .gas_sweep_policy
             .validate_sign_transaction(
                 &request.raw_tx,
                 &request.public_key,
@@ -300,20 +344,58 @@ impl SecureSign for Gateway {
                 request.expected_fee_total,
                 None,
             )
-            .map_err(|err| match err {
-                secure_sign_core::neo::gas_sweep_policy::GasSweepPolicyError::Disabled => {
-                    Status::unimplemented("SignTransaction is disabled")
-                }
-                other => Status::permission_denied(other.to_string()),
-            })?;
+            .map_err(gas_sweep_status)?;
 
+        let slot = format!("economic/{}/{JOURNAL_VERSION}", request.idempotency_key);
+        let digest = hex::encode(preliminary.tx.tx_hash_le());
+        match self.economic_journal_match(&slot, &digest).await {
+            JournalMatch::Matching => {
+                // A retry of bytes that already passed the live policy is safe.
+            }
+            JournalMatch::Conflicting => {
+                return Err(Status::failed_precondition(
+                    "a different transaction is already reserved for this daily sweep",
+                ));
+            }
+            JournalMatch::Vacant => {
+                let expected_key = daily_sweep_key_at(Utc::now());
+                if request.idempotency_key != expected_key {
+                    return Err(Status::invalid_argument(
+                        "idempotency key must identify today's Asia/Shanghai sweep",
+                    ));
+                }
+                let verifier = self.gas_sweep_rpc.as_ref().ok_or_else(|| {
+                    Status::failed_precondition("dual-RPC verification is not configured")
+                })?;
+                let verified = verifier
+                    .verify_transaction(&preliminary.tx, &request.public_key)
+                    .await
+                    .map_err(|err| {
+                        Status::failed_precondition(format!("dual-RPC verification failed: {err}"))
+                    })?;
+                self.gas_sweep_policy
+                    .validate_sign_transaction(
+                        &request.raw_tx,
+                        &request.public_key,
+                        request.network,
+                        &request.idempotency_key,
+                        request.expected_amount,
+                        request.expected_fee_total,
+                        Some(verified.safe_balance),
+                    )
+                    .map_err(gas_sweep_status)?;
+                self.reserve(Some(slot), &preliminary.tx.tx_hash_le())
+                    .await?;
+            }
+        }
+
+        let _signing_permit = self
+            .economic_signing_permit()
+            .map_err(Status::resource_exhausted)?;
         let mut client = self.client.clone();
-        tokio::time::timeout(
-            self.economic_timeout,
-            client.sign_transaction(request),
-        )
-        .await
-        .map_err(|_| Status::deadline_exceeded("enclave economic signing deadline exceeded"))?
+        tokio::time::timeout(self.economic_timeout, client.sign_transaction(request))
+            .await
+            .map_err(|_| Status::deadline_exceeded("enclave economic signing deadline exceeded"))?
     }
 
     async fn get_account_status(
@@ -331,6 +413,29 @@ impl SecureSign for Gateway {
     }
 }
 
+fn gas_sweep_status(err: secure_sign_core::neo::gas_sweep_policy::GasSweepPolicyError) -> Status {
+    use secure_sign_core::neo::gas_sweep_policy::GasSweepPolicyError;
+    match err {
+        GasSweepPolicyError::Disabled => Status::unimplemented("SignTransaction is disabled"),
+        GasSweepPolicyError::MissingIdempotencyKey
+        | GasSweepPolicyError::InvalidIdempotencyKey
+        | GasSweepPolicyError::ExpectedAmountMismatch
+        | GasSweepPolicyError::ExpectedFeeMismatch
+        | GasSweepPolicyError::InvalidPublicKey
+        | GasSweepPolicyError::Tx(_)
+        | GasSweepPolicyError::Script(_) => Status::invalid_argument(err.to_string()),
+        _ => Status::permission_denied(err.to_string()),
+    }
+}
+
+fn daily_sweep_key_at(now: DateTime<Utc>) -> String {
+    let shanghai = FixedOffset::east_opt(8 * 60 * 60).expect("valid fixed UTC offset");
+    format!(
+        "gas-sweep/{}",
+        now.with_timezone(&shanghai).format("%Y-%m-%d")
+    )
+}
+
 fn decode_public_key(value: &str) -> Result<Vec<u8>, String> {
     let public_key = hex::decode(value).map_err(|err| format!("invalid public key hex: {err}"))?;
     if !matches!(public_key.len(), 33 | 65) {
@@ -342,6 +447,17 @@ fn decode_public_key(value: &str) -> Result<Vec<u8>, String> {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
+    if args.economic_timeout_ms == 0 || args.economic_timeout_ms > args.timeout_ms {
+        return Err(
+            "economic timeout must be non-zero and no greater than consensus timeout".into(),
+        );
+    }
+    if args.gas_sweep_rpc_timeout_ms == 0 || args.gas_sweep_rpc_timeout_ms > 10_000 {
+        return Err("GAS sweep RPC timeout must be between 1 and 10000 ms".into());
+    }
+    if args.gas_sweep_max_valid_until_delta <= args.gas_sweep_max_height_skew {
+        return Err("GAS sweep valid-until delta must exceed maximum RPC height skew".into());
+    }
     let public_key = decode_public_key(&args.public_key)?;
     let gas_sweep_policy = build_deploy_policy(
         args.network,
@@ -351,6 +467,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         args.gas_sweep_destination_script_hash.as_deref(),
     )
     .map_err(|err| format!("gas sweep deploy config: {err}"))?;
+    let gas_sweep_rpc = match (
+        args.enable_sign_transaction,
+        args.gas_sweep_rpc_urls.as_deref(),
+    ) {
+        (false, _) => None,
+        (true, Some(urls)) => Some(Arc::new(DualRpcVerifier::from_csv(
+            urls,
+            Duration::from_millis(args.gas_sweep_rpc_timeout_ms),
+            args.gas_sweep_max_height_skew,
+            args.gas_sweep_max_valid_until_delta,
+        )?)),
+        (true, None) => {
+            return Err("GAS_SWEEP_RPC_URLS is required when SignTransaction is enabled".into())
+        }
+    };
     let journal = AntiEquivocationJournal::open(&args.journal)?;
     let channel = vsock_channel(args.enclave_cid, args.enclave_port).await?;
 
@@ -358,6 +489,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         client: SecureSignClient::new(channel),
         policy: ConsensusSigningPolicy::new(args.network),
         gas_sweep_policy,
+        gas_sweep_rpc,
         public_key: Arc::new(public_key),
         journal: Arc::new(Mutex::new(journal)),
         single_flight: Arc::new(Semaphore::new(1)),
@@ -384,7 +516,20 @@ mod tests {
         let path = dir.path().join("journal.log");
         let mut journal = AntiEquivocationJournal::open(&path).unwrap();
 
+        assert_eq!(
+            journal.matches("payload/1/20/0/0/v1", "aaaa"),
+            JournalMatch::Vacant
+        );
+
         journal.reserve("payload/1/20/0/0/v1", "aaaa").unwrap();
+        assert_eq!(
+            journal.matches("payload/1/20/0/0/v1", "aaaa"),
+            JournalMatch::Matching
+        );
+        assert_eq!(
+            journal.matches("payload/1/20/0/0/v1", "bbbb"),
+            JournalMatch::Conflicting
+        );
         journal.reserve("payload/1/20/0/0/v1", "aaaa").unwrap();
         assert!(journal
             .reserve("payload/1/20/0/0/v1", "bbbb")
@@ -434,5 +579,17 @@ mod tests {
         let pk = decode_public_key(&"02".repeat(33)).unwrap();
         let err = build_deploy_policy(860_833_102, true, pk, None, None).unwrap_err();
         assert!(err.to_string().contains("destination allowlist required"));
+    }
+
+    #[test]
+    fn daily_key_uses_asia_shanghai_calendar_day() {
+        let before_midnight = DateTime::parse_from_rfc3339("2026-09-03T15:59:59Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let after_midnight = DateTime::parse_from_rfc3339("2026-09-03T16:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        assert_eq!(daily_sweep_key_at(before_midnight), "gas-sweep/2026-09-03");
+        assert_eq!(daily_sweep_key_at(after_midnight), "gas-sweep/2026-09-04");
     }
 }

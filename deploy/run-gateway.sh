@@ -10,4 +10,5 @@ exec /opt/neo-signer/bin/secure-sign-gateway \
   --network "${SIGNER_NETWORK:-860833102}" \
   --public-key "$SIGNER_PUBLIC_KEY" \
   --journal "${SIGNER_JOURNAL:-/var/lib/neo-signer/anti-equivocation.log}" \
-  --timeout-ms "${SIGNER_TIMEOUT_MS:-900}"
+  --timeout-ms "${SIGNER_TIMEOUT_MS:-900}" \
+  --economic-timeout-ms "${SIGNER_ECONOMIC_TIMEOUT_MS:-900}"
