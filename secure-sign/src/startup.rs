@@ -2,6 +2,7 @@
 // All Rights Reserved
 
 use std::error::Error;
+use std::string::String;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 use secure_sign_core::neo::sign::{Account, Signer};
@@ -35,6 +36,9 @@ pub struct DefaultStartSigner {
     cid: u32, // 0 if tcp
     port: u16,
     consensus_network: Option<u32>,
+    enable_sign_transaction: bool,
+    gas_sweep_destination: Option<String>,
+    gas_sweep_destination_script_hash: Option<String>,
 }
 
 impl DefaultStartSigner {
@@ -44,6 +48,9 @@ impl DefaultStartSigner {
             cid,
             port,
             consensus_network: None,
+            enable_sign_transaction: false,
+            gas_sweep_destination: None,
+            gas_sweep_destination_script_hash: None,
         }
     }
 
@@ -53,7 +60,23 @@ impl DefaultStartSigner {
             cid,
             port,
             consensus_network: Some(network),
+            enable_sign_transaction: false,
+            gas_sweep_destination: None,
+            gas_sweep_destination_script_hash: None,
         }
+    }
+
+    #[cfg(feature = "vsock")]
+    pub fn with_gas_sweep_deploy_config(
+        mut self,
+        enable_sign_transaction: bool,
+        gas_sweep_destination: Option<String>,
+        gas_sweep_destination_script_hash: Option<String>,
+    ) -> Self {
+        self.enable_sign_transaction = enable_sign_transaction;
+        self.gas_sweep_destination = gas_sweep_destination;
+        self.gas_sweep_destination_script_hash = gas_sweep_destination_script_hash;
+        self
     }
 
     #[allow(unused)]
@@ -62,17 +85,38 @@ impl DefaultStartSigner {
             cid: 0,
             port,
             consensus_network: None,
+            enable_sign_transaction: false,
+            gas_sweep_destination: None,
+            gas_sweep_destination_script_hash: None,
         }
     }
 }
 
 impl StartSigner for DefaultStartSigner {
     fn start(self, accounts: Vec<Account>) -> Result<oneshot::Sender<()>, Box<dyn Error>> {
+        if accounts.is_empty() {
+            return Err("no accounts available to start signer".into());
+        }
+        let source_public_key = accounts[0].keypair.public_key().to_compressed().to_vec();
+        let enable = self.enable_sign_transaction;
+        let dest = self.gas_sweep_destination.clone();
+        let dest_hash = self.gas_sweep_destination_script_hash.clone();
+        let network_for_policy = self.consensus_network.unwrap_or(secure_sign_core::neo::consensus::NEO_N3_MAINNET_MAGIC);
+        let gas_sweep_policy = secure_sign_core::neo::gas_sweep_policy::build_deploy_policy(
+            network_for_policy,
+            enable,
+            source_public_key,
+            dest.as_deref(),
+            dest_hash.as_deref(),
+        )
+        .map_err(|err| format!("gas sweep deploy config: {err}"))?;
+
         let signer = Signer::new(accounts);
         let sign_service = match self.consensus_network {
             Some(network) => DefaultSignService::new_consensus(signer, network),
             None => DefaultSignService::new(signer),
-        };
+        }
+        .with_gas_sweep_policy(gas_sweep_policy);
         let router = Server::builder()
             .accept_http1(true)
             .add_service(SecureSignServer::new(sign_service));

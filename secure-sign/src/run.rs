@@ -53,6 +53,18 @@ pub(crate) struct RunCmd {
         default_value_t = NEO_N3_MAINNET_MAGIC
     )]
     pub network: u32,
+
+    /// Master switch for allowlisted SignTransaction (default OFF).
+    #[arg(long, default_value_t = false, env = "ENABLE_SIGN_TRANSACTION")]
+    pub enable_sign_transaction: bool,
+
+    /// Deploy-time allowlisted GAS sweep destination address (never hardcode in git).
+    #[arg(long, env = "GAS_SWEEP_DESTINATION_ADDRESS")]
+    pub gas_sweep_destination: Option<String>,
+
+    /// Deploy-time allowlisted destination script hash (LE hex).
+    #[arg(long, env = "GAS_SWEEP_DESTINATION_SCRIPT_HASH")]
+    pub gas_sweep_destination_script_hash: Option<String>,
 }
 
 impl RunCmd {
@@ -71,7 +83,12 @@ impl RunCmd {
 
     #[cfg(feature = "vsock")]
     fn run_vsock(&self, wallet: Nep6Wallet) -> Result<oneshot::Sender<()>, Box<dyn Error>> {
-        let startup = DefaultStartSigner::with_vsock_consensus(self.cid, self.port, self.network);
+        let startup = DefaultStartSigner::with_vsock_consensus(self.cid, self.port, self.network)
+            .with_gas_sweep_deploy_config(
+                self.enable_sign_transaction,
+                self.gas_sweep_destination.clone(),
+                self.gas_sweep_destination_script_hash.clone(),
+            );
         let service = DefaultStartupService::new(
             wallet,
             EnvCryptRandom,
