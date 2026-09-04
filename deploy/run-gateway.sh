@@ -9,6 +9,7 @@ exec /opt/neo-signer/bin/secure-sign-gateway \
   --enclave-port "${SIGNER_SERVICE_PORT:-9991}" \
   --network "${SIGNER_NETWORK:-860833102}" \
   --public-key "$SIGNER_PUBLIC_KEY" \
-  --journal "${SIGNER_JOURNAL:-/var/lib/neo-signer/anti-equivocation.log}" \
+  --journal-db "${SIGNER_JOURNAL_DB:-/var/lib/neo-signer/anti-equivocation.redb}" \
+  --legacy-journal "${SIGNER_LEGACY_JOURNAL:-${SIGNER_JOURNAL:-/var/lib/neo-signer/anti-equivocation.log}}" \
   --timeout-ms "${SIGNER_TIMEOUT_MS:-900}" \
   --economic-timeout-ms "${SIGNER_ECONOMIC_TIMEOUT_MS:-900}"

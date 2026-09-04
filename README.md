@@ -188,13 +188,20 @@ make gateway
     --enclave-port 9991 \
     --network 860833102 \
     --public-key <compressed-council-public-key> \
-    --journal /var/lib/neo-signer/anti-equivocation.log
+    --journal-db /var/lib/neo-signer/anti-equivocation.redb \
+    --legacy-journal /var/lib/neo-signer/anti-equivocation.log
 ```
 
 The gateway accepts one request at a time, enforces the configured network and
 public key, and durably rejects conflicting prepare/commit or block signatures
 for the same consensus slot. Change-view and recovery messages remain retryable
 because their payloads can legitimately evolve within a view.
+
+The disk-backed journal uses a 16 MiB page cache, so historical growth does not
+increase gateway RSS. On first start it migrates the legacy text journal in
+durable bounded batches; later starts verify the imported prefix and process
+only newly appended records. Keep the legacy file until the new gateway has
+completed migration and a production soak.
 
 The optional daily GAS sweep is a separate, fail-closed economic path. It uses
 two independent HTTPS Neo RPC providers, an exact destination allowlist, live

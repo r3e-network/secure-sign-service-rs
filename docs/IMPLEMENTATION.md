@@ -61,7 +61,10 @@ Unset allowlist while enabled → `AllowlistNotConfigured` / startup config erro
    and fees, and stay within a bounded height skew before the gateway will sign.
 5. Build from the lower independently observed balance and leave at least 1 GAS
    after fees. Rewards that accrue during verification remain for the next run.
-6. Reserve `gas-sweep/YYYY-MM-DD` in the fsync-backed gateway journal. A
+6. Reserve `gas-sweep/YYYY-MM-DD` in the immediate-durability, disk-backed
+   gateway journal. The gateway imports the legacy append-only journal in
+   bounded batches, verifies its checkpointed prefix on every restart, and
+   keeps its page cache at 16 MiB. A
    conflicting transaction for the same Asia/Shanghai day is refused.
 7. Hold the consensus signing semaphore only during the sub-second enclave
    signature call. All external RPC work happens before it, so economic work

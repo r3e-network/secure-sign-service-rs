@@ -1,14 +1,14 @@
-use std::collections::HashMap;
-use std::fs::{self, File, OpenOptions};
-use std::io::{BufRead, BufReader, Write};
+use std::fs::{self, File};
+use std::io::{BufRead, BufReader, Read, Seek};
 use std::net::SocketAddr;
-use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
 use chrono::{DateTime, FixedOffset, Utc};
 use clap::Parser;
+use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
 use secure_sign_core::h160::{H160, H160_SIZE};
 use secure_sign_core::neo::consensus::{
     ConsensusMessageMetadata, ConsensusMessageType, ConsensusSigningPolicy,
@@ -24,11 +24,19 @@ use secure_sign_rpc::servicepb::{
     SignTransactionResponse,
 };
 use secure_sign_rpc::vsock::vsock_channel;
+use sha2::{Digest, Sha256};
 use tokio::sync::{Mutex, Semaphore};
 use tonic::transport::{Channel, Server};
 use tonic::{Request, Response, Status};
 
 const JOURNAL_VERSION: &str = "v1";
+const JOURNAL_CACHE_BYTES: usize = 16 * 1024 * 1024;
+const LEGACY_IMPORT_BATCH_SIZE: usize = 4_096;
+const JOURNAL_ENTRIES: TableDefinition<&str, &str> =
+    TableDefinition::new("anti_equivocation_entries_v1");
+const JOURNAL_META: TableDefinition<&str, &str> = TableDefinition::new("anti_equivocation_meta_v1");
+const LEGACY_OFFSET_KEY: &str = "legacy_imported_bytes";
+const LEGACY_HASH_KEY: &str = "legacy_prefix_sha256";
 
 #[derive(Debug, Parser)]
 #[command(about = "Consensus-only TCP gateway for a Nitro Enclave signer")]
@@ -48,8 +56,12 @@ struct Args {
     #[arg(long)]
     public_key: String,
 
+    #[arg(long, default_value = "/var/lib/neo-signer/anti-equivocation.redb")]
+    journal_db: PathBuf,
+
+    /// Append-only v1 journal imported into the disk-backed database.
     #[arg(long, default_value = "/var/lib/neo-signer/anti-equivocation.log")]
-    journal: PathBuf,
+    legacy_journal: PathBuf,
 
     #[arg(long, default_value_t = 900)]
     timeout_ms: u64,
@@ -96,78 +108,257 @@ enum JournalMatch {
 }
 
 struct AntiEquivocationJournal {
-    entries: HashMap<String, String>,
-    file: File,
+    database: Database,
 }
 
 impl AntiEquivocationJournal {
-    fn open(path: &Path) -> Result<Self, String> {
-        if let Some(parent) = path.parent() {
+    fn open(database_path: &Path, legacy_path: &Path) -> Result<Self, String> {
+        if database_path == legacy_path {
+            return Err("journal database and legacy journal must use different paths".to_owned());
+        }
+        if let Some(parent) = database_path.parent() {
             fs::create_dir_all(parent).map_err(|err| format!("create journal directory: {err}"))?;
             fs::set_permissions(parent, fs::Permissions::from_mode(0o700))
                 .map_err(|err| format!("set journal directory permissions: {err}"))?;
         }
 
-        let mut entries = HashMap::new();
-        if path.exists() {
-            let input = File::open(path).map_err(|err| format!("open journal: {err}"))?;
-            for (line_number, line) in BufReader::new(input).lines().enumerate() {
-                let line = line.map_err(|err| format!("read journal: {err}"))?;
-                let fields: Vec<_> = line.split('\t').collect();
-                if fields.len() != 3 || fields[0] != JOURNAL_VERSION {
-                    return Err(format!(
-                        "invalid journal record at line {}",
-                        line_number + 1
-                    ));
-                }
-                match entries.insert(fields[1].to_owned(), fields[2].to_owned()) {
-                    Some(previous) if previous != fields[2] => {
-                        return Err(format!(
-                            "conflicting journal records for slot {}",
-                            fields[1]
-                        ));
-                    }
-                    _ => {}
-                }
+        let mut builder = Database::builder();
+        builder.set_cache_size(JOURNAL_CACHE_BYTES);
+        let database = builder
+            .create(database_path)
+            .map_err(|err| format!("open journal database: {err}"))?;
+        fs::set_permissions(database_path, fs::Permissions::from_mode(0o600))
+            .map_err(|err| format!("set journal database permissions: {err}"))?;
+
+        let write = database
+            .begin_write()
+            .map_err(|err| format!("initialize journal database: {err}"))?;
+        {
+            write
+                .open_table(JOURNAL_ENTRIES)
+                .map_err(|err| format!("initialize journal entries: {err}"))?;
+            write
+                .open_table(JOURNAL_META)
+                .map_err(|err| format!("initialize journal metadata: {err}"))?;
+        }
+        write
+            .commit()
+            .map_err(|err| format!("commit journal initialization: {err}"))?;
+
+        let journal = Self { database };
+        journal.import_legacy(legacy_path)?;
+        Ok(journal)
+    }
+
+    fn import_legacy(&self, legacy_path: &Path) -> Result<(), String> {
+        if !legacy_path.exists() {
+            return Ok(());
+        }
+
+        let (imported_offset, expected_hash) = self.legacy_checkpoint()?;
+        let mut input = File::open(legacy_path)
+            .map_err(|err| format!("open legacy journal for migration: {err}"))?;
+        let file_len = input
+            .metadata()
+            .map_err(|err| format!("stat legacy journal: {err}"))?
+            .len();
+        if file_len < imported_offset {
+            return Err(format!(
+                "legacy journal shrank below imported offset {imported_offset}"
+            ));
+        }
+
+        let mut hasher = Sha256::new();
+        let mut remaining = imported_offset;
+        let mut buffer = [0_u8; 64 * 1024];
+        while remaining > 0 {
+            let read_len = usize::try_from(remaining.min(buffer.len() as u64))
+                .map_err(|_| "legacy journal offset exceeds platform limits")?;
+            input
+                .read_exact(&mut buffer[..read_len])
+                .map_err(|err| format!("read imported legacy journal prefix: {err}"))?;
+            hasher.update(&buffer[..read_len]);
+            remaining -= read_len as u64;
+        }
+
+        let actual_hash = hex::encode(hasher.clone().finalize());
+        match (imported_offset, expected_hash.as_deref()) {
+            (0, None) => {}
+            (_, Some(expected)) if expected == actual_hash => {}
+            (0, Some(_)) => {
+                return Err("legacy journal checkpoint has a hash without an offset".to_owned())
+            }
+            (_, None) => return Err("legacy journal checkpoint is missing its hash".to_owned()),
+            _ => return Err("legacy journal prefix changed after migration".to_owned()),
+        }
+
+        input
+            .seek(std::io::SeekFrom::Start(imported_offset))
+            .map_err(|err| format!("seek legacy journal: {err}"))?;
+        let mut reader = BufReader::new(input);
+        let mut offset = imported_offset;
+        let mut line_number = 0_u64;
+        let mut batch = Vec::with_capacity(LEGACY_IMPORT_BATCH_SIZE);
+
+        loop {
+            let mut raw = Vec::new();
+            let bytes = reader
+                .read_until(b'\n', &mut raw)
+                .map_err(|err| format!("read legacy journal: {err}"))?;
+            if bytes == 0 {
+                break;
+            }
+            line_number += 1;
+            if raw.last() != Some(&b'\n') {
+                return Err("legacy journal ends with a partial record".to_owned());
+            }
+            hasher.update(&raw);
+            offset = offset
+                .checked_add(bytes as u64)
+                .ok_or_else(|| "legacy journal offset overflow".to_owned())?;
+            raw.pop();
+            if raw.last() == Some(&b'\r') {
+                raw.pop();
+            }
+            let line = std::str::from_utf8(&raw)
+                .map_err(|err| format!("legacy journal record is not UTF-8: {err}"))?;
+            let fields: Vec<_> = line.split('\t').collect();
+            if fields.len() != 3 || fields[0] != JOURNAL_VERSION {
+                return Err(format!(
+                    "invalid legacy journal record after imported offset at line {line_number}"
+                ));
+            }
+            batch.push((fields[1].to_owned(), fields[2].to_owned()));
+
+            if batch.len() == LEGACY_IMPORT_BATCH_SIZE {
+                self.commit_legacy_batch(&batch, offset, &hex::encode(hasher.clone().finalize()))?;
+                batch.clear();
             }
         }
 
-        let file = OpenOptions::new()
-            .create(true)
-            .append(true)
-            .mode(0o600)
-            .open(path)
-            .map_err(|err| format!("open journal for append: {err}"))?;
-        fs::set_permissions(path, fs::Permissions::from_mode(0o600))
-            .map_err(|err| format!("set journal permissions: {err}"))?;
-
-        Ok(Self { entries, file })
-    }
-
-    fn reserve(&mut self, slot: &str, digest: &str) -> Result<(), String> {
-        if let Some(previous) = self.entries.get(slot) {
-            return if previous == digest {
-                Ok(())
-            } else {
-                Err(format!("conflicting signing request for slot {slot}"))
-            };
+        if !batch.is_empty() {
+            self.commit_legacy_batch(&batch, offset, &hex::encode(hasher.finalize()))?;
         }
-
-        writeln!(self.file, "{JOURNAL_VERSION}\t{slot}\t{digest}")
-            .map_err(|err| format!("append journal: {err}"))?;
-        self.file
-            .sync_data()
-            .map_err(|err| format!("sync journal: {err}"))?;
-        self.entries.insert(slot.to_owned(), digest.to_owned());
         Ok(())
     }
 
-    fn matches(&self, slot: &str, digest: &str) -> JournalMatch {
-        match self.entries.get(slot) {
-            None => JournalMatch::Vacant,
-            Some(previous) if previous == digest => JournalMatch::Matching,
-            Some(_) => JournalMatch::Conflicting,
+    fn legacy_checkpoint(&self) -> Result<(u64, Option<String>), String> {
+        let read = self
+            .database
+            .begin_read()
+            .map_err(|err| format!("read journal checkpoint: {err}"))?;
+        let table = read
+            .open_table(JOURNAL_META)
+            .map_err(|err| format!("open journal metadata: {err}"))?;
+        let offset = table
+            .get(LEGACY_OFFSET_KEY)
+            .map_err(|err| format!("read legacy journal offset: {err}"))?
+            .map(|value| value.value().parse::<u64>())
+            .transpose()
+            .map_err(|err| format!("parse legacy journal offset: {err}"))?
+            .unwrap_or(0);
+        let hash = table
+            .get(LEGACY_HASH_KEY)
+            .map_err(|err| format!("read legacy journal hash: {err}"))?
+            .map(|value| value.value().to_owned());
+        Ok((offset, hash))
+    }
+
+    fn commit_legacy_batch(
+        &self,
+        batch: &[(String, String)],
+        offset: u64,
+        prefix_hash: &str,
+    ) -> Result<(), String> {
+        let write = self
+            .database
+            .begin_write()
+            .map_err(|err| format!("begin legacy journal migration: {err}"))?;
+        {
+            let mut entries = write
+                .open_table(JOURNAL_ENTRIES)
+                .map_err(|err| format!("open journal entries: {err}"))?;
+            for (slot, digest) in batch {
+                let previous = entries
+                    .get(slot.as_str())
+                    .map_err(|err| format!("read migrated journal entry: {err}"))?
+                    .map(|value| value.value().to_owned());
+                match previous.as_deref() {
+                    Some(previous) if previous != digest => {
+                        return Err(format!(
+                            "conflicting legacy journal records for slot {slot}"
+                        ));
+                    }
+                    Some(_) => {}
+                    None => {
+                        entries
+                            .insert(slot.as_str(), digest.as_str())
+                            .map_err(|err| format!("migrate journal entry: {err}"))?;
+                    }
+                }
+            }
         }
+        {
+            let mut meta = write
+                .open_table(JOURNAL_META)
+                .map_err(|err| format!("open journal metadata: {err}"))?;
+            let offset = offset.to_string();
+            meta.insert(LEGACY_OFFSET_KEY, offset.as_str())
+                .map_err(|err| format!("store legacy journal offset: {err}"))?;
+            meta.insert(LEGACY_HASH_KEY, prefix_hash)
+                .map_err(|err| format!("store legacy journal hash: {err}"))?;
+        }
+        write
+            .commit()
+            .map_err(|err| format!("commit legacy journal migration: {err}"))
+    }
+
+    fn reserve(&self, slot: &str, digest: &str) -> Result<(), String> {
+        let write = self
+            .database
+            .begin_write()
+            .map_err(|err| format!("begin journal reservation: {err}"))?;
+        {
+            let mut entries = write
+                .open_table(JOURNAL_ENTRIES)
+                .map_err(|err| format!("open journal entries: {err}"))?;
+            let previous = entries
+                .get(slot)
+                .map_err(|err| format!("read journal entry: {err}"))?
+                .map(|value| value.value().to_owned());
+            match previous.as_deref() {
+                Some(previous) if previous == digest => return Ok(()),
+                Some(_) => return Err(format!("conflicting signing request for slot {slot}")),
+                None => {
+                    entries
+                        .insert(slot, digest)
+                        .map_err(|err| format!("reserve journal entry: {err}"))?;
+                }
+            }
+        }
+        write
+            .commit()
+            .map_err(|err| format!("commit journal reservation: {err}"))
+    }
+
+    fn matches(&self, slot: &str, digest: &str) -> Result<JournalMatch, String> {
+        let read = self
+            .database
+            .begin_read()
+            .map_err(|err| format!("begin journal read: {err}"))?;
+        let entries = read
+            .open_table(JOURNAL_ENTRIES)
+            .map_err(|err| format!("open journal entries: {err}"))?;
+        Ok(
+            match entries
+                .get(slot)
+                .map_err(|err| format!("read journal entry: {err}"))?
+            {
+                None => JournalMatch::Vacant,
+                Some(previous) if previous.value() == digest => JournalMatch::Matching,
+                Some(_) => JournalMatch::Conflicting,
+            },
+        )
     }
 }
 
@@ -225,7 +416,7 @@ impl Gateway {
             .lock()
             .await
             .reserve(&slot, &hex::encode(digest))
-            .map_err(Status::failed_precondition)
+            .map_err(journal_status)
     }
 
     async fn permit(&self) -> Result<tokio::sync::OwnedSemaphorePermit, Status> {
@@ -252,8 +443,16 @@ impl Gateway {
             .map_err(|_| "consensus signing in flight; economic sign refused")
     }
 
-    async fn economic_journal_match(&self, slot: &str, digest: &str) -> JournalMatch {
-        self.journal.lock().await.matches(slot, digest)
+    async fn economic_journal_match(
+        &self,
+        slot: &str,
+        digest: &str,
+    ) -> Result<JournalMatch, Status> {
+        self.journal
+            .lock()
+            .await
+            .matches(slot, digest)
+            .map_err(journal_status)
     }
 }
 
@@ -348,7 +547,7 @@ impl SecureSign for Gateway {
 
         let slot = format!("economic/{}/{JOURNAL_VERSION}", request.idempotency_key);
         let digest = hex::encode(preliminary.tx.tx_hash_le());
-        match self.economic_journal_match(&slot, &digest).await {
+        match self.economic_journal_match(&slot, &digest).await? {
             JournalMatch::Matching => {
                 // A retry of bytes that already passed the live policy is safe.
             }
@@ -428,6 +627,14 @@ fn gas_sweep_status(err: secure_sign_core::neo::gas_sweep_policy::GasSweepPolicy
     }
 }
 
+fn journal_status(err: String) -> Status {
+    if err.starts_with("conflicting signing request") {
+        Status::failed_precondition(err)
+    } else {
+        Status::unavailable(format!("anti-equivocation journal unavailable: {err}"))
+    }
+}
+
 fn daily_sweep_key_at(now: DateTime<Utc>) -> String {
     let shanghai = FixedOffset::east_opt(8 * 60 * 60).expect("valid fixed UTC offset");
     format!(
@@ -482,7 +689,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             return Err("GAS_SWEEP_RPC_URLS is required when SignTransaction is enabled".into())
         }
     };
-    let journal = AntiEquivocationJournal::open(&args.journal)?;
+    let journal = AntiEquivocationJournal::open(&args.journal_db, &args.legacy_journal)?;
     let channel = vsock_channel(args.enclave_cid, args.enclave_port).await?;
 
     let gateway = Gateway {
@@ -513,21 +720,22 @@ mod tests {
     #[test]
     fn journal_rejects_conflicts_and_survives_restart() {
         let dir = tempdir().unwrap();
-        let path = dir.path().join("journal.log");
-        let mut journal = AntiEquivocationJournal::open(&path).unwrap();
+        let database_path = dir.path().join("journal.redb");
+        let legacy_path = dir.path().join("journal.log");
+        let journal = AntiEquivocationJournal::open(&database_path, &legacy_path).unwrap();
 
         assert_eq!(
-            journal.matches("payload/1/20/0/0/v1", "aaaa"),
+            journal.matches("payload/1/20/0/0/v1", "aaaa").unwrap(),
             JournalMatch::Vacant
         );
 
         journal.reserve("payload/1/20/0/0/v1", "aaaa").unwrap();
         assert_eq!(
-            journal.matches("payload/1/20/0/0/v1", "aaaa"),
+            journal.matches("payload/1/20/0/0/v1", "aaaa").unwrap(),
             JournalMatch::Matching
         );
         assert_eq!(
-            journal.matches("payload/1/20/0/0/v1", "bbbb"),
+            journal.matches("payload/1/20/0/0/v1", "bbbb").unwrap(),
             JournalMatch::Conflicting
         );
         journal.reserve("payload/1/20/0/0/v1", "aaaa").unwrap();
@@ -537,9 +745,59 @@ mod tests {
             .contains("conflicting signing request"));
         drop(journal);
 
-        let mut reloaded = AntiEquivocationJournal::open(&path).unwrap();
+        let reloaded = AntiEquivocationJournal::open(&database_path, &legacy_path).unwrap();
         assert!(reloaded.reserve("payload/1/20/0/0/v1", "bbbb").is_err());
         reloaded.reserve("payload/2/20/0/0/v1", "bbbb").unwrap();
+    }
+
+    #[test]
+    fn journal_imports_legacy_records_incrementally() {
+        let dir = tempdir().unwrap();
+        let database_path = dir.path().join("journal.redb");
+        let legacy_path = dir.path().join("journal.log");
+        fs::write(
+            &legacy_path,
+            "v1\tpayload/1/20/0/0/v1\taaaa\nv1\tpayload/2/20/0/0/v1\tbbbb\n",
+        )
+        .unwrap();
+        let journal = AntiEquivocationJournal::open(&database_path, &legacy_path).unwrap();
+        assert_eq!(
+            journal.matches("payload/1/20/0/0/v1", "aaaa").unwrap(),
+            JournalMatch::Matching
+        );
+        drop(journal);
+
+        use std::io::Write;
+        let mut legacy = fs::OpenOptions::new()
+            .append(true)
+            .open(&legacy_path)
+            .unwrap();
+        writeln!(legacy, "v1\tpayload/3/20/0/0/v1\tcccc").unwrap();
+        legacy.sync_data().unwrap();
+
+        let reloaded = AntiEquivocationJournal::open(&database_path, &legacy_path).unwrap();
+        assert_eq!(
+            reloaded.matches("payload/3/20/0/0/v1", "cccc").unwrap(),
+            JournalMatch::Matching
+        );
+    }
+
+    #[test]
+    fn journal_rejects_changed_or_partial_legacy_history() {
+        let dir = tempdir().unwrap();
+        let database_path = dir.path().join("journal.redb");
+        let legacy_path = dir.path().join("journal.log");
+        fs::write(&legacy_path, "v1\tpayload/1/20/0/0/v1\taaaa\n").unwrap();
+        drop(AntiEquivocationJournal::open(&database_path, &legacy_path).unwrap());
+
+        fs::write(&legacy_path, "v1\tpayload/1/20/0/0/v1\tbbbb\n").unwrap();
+        let changed = AntiEquivocationJournal::open(&database_path, &legacy_path);
+        assert!(matches!(changed, Err(ref err) if err.contains("prefix changed")));
+
+        let second_database = dir.path().join("partial.redb");
+        fs::write(&legacy_path, "v1\tpayload/2/20/0/0/v1\tcccc").unwrap();
+        let partial = AntiEquivocationJournal::open(&second_database, &legacy_path);
+        assert!(matches!(partial, Err(ref err) if err.contains("partial record")));
     }
 
     #[test]
