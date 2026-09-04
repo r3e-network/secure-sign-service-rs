@@ -47,10 +47,48 @@ message GetAccountStatusResponse {
     signpb.AccountStatus status = 1;
 }
 
+// Allowlisted MainNet GAS sweep signing (Option B). Feature-flagged; never broadcasts.
+message SignTransactionRequest {
+    // Unsigned Neo N3 transaction hash-data (network serialization WITHOUT witnesses).
+    bytes raw_tx = 1;
+
+    // Must equal gateway-pinned council key (compressed SEC1).
+    bytes public_key = 2;
+
+    // Must be 860833102 on MainNet production.
+    uint32 network = 3;
+
+    // Client-generated opaque key (UUIDv4 / 32-byte hex). Required.
+    string idempotency_key = 4;
+
+    // Optional correlation id from dry-run / ops ticket.
+    string client_dry_run_id = 5;
+
+    // Client-asserted amount in GAS fractions (uint64). Re-validated against script.
+    uint64 expected_amount = 6;
+
+    // Client-asserted fee sum in fractions; must match tx.system_fee+network_fee and <= cap.
+    uint64 expected_fee_total = 7;
+}
+
+message SignTransactionResponse {
+    // ECDSA secp256r1 signature over transaction sign-data (network||hash), raw 64 bytes.
+    bytes signature = 1;
+
+    // Echo of computed tx hash (LE H256 bytes) for client assemble/broadcast.
+    bytes tx_hash = 2;
+
+    // Echo idempotency_key; when served from cache, cache_hit=true.
+    string idempotency_key = 3;
+    bool cache_hit = 4;
+}
+
 service SecureSign {
     rpc SignExtensiblePayload(SignExtensiblePayloadRequest) returns (SignExtensiblePayloadResponse) {}
 
     rpc SignBlock(SignBlockRequest) returns (SignBlockResponse) {}
 
     rpc GetAccountStatus(GetAccountStatusRequest) returns (GetAccountStatusResponse) {}
+
+    rpc SignTransaction(SignTransactionRequest) returns (SignTransactionResponse) {}
 }

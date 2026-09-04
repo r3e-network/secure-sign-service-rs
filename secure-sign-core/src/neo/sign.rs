@@ -9,6 +9,7 @@ use crate::bytes::ToArray;
 use crate::ecdsa::Sign;
 use crate::h160::{H160, H160_SIZE};
 use crate::h256::{H256, H256_SIZE};
+use crate::hash::Sha256;
 use crate::merkle::MerkleSha256;
 use crate::neo::check_sign::ToCheckSign;
 use crate::neo::signpb::*;
@@ -246,6 +247,37 @@ impl Signer {
         }
 
         Ok(MultiAccountSigns { signs })
+    }
+
+    pub fn sign_transaction(
+        &self,
+        public_key: &[u8],
+        unsigned_hash_data: &[u8],
+        network: u32,
+    ) -> Result<(Vec<u8>, [u8; 32]), SignError> {
+        let compressed_public_key = PublicKey::try_to_compressed(public_key)
+            .map_err(|err| SignError::InvalidPublicKey(err.to_string()))?;
+
+        let account = self
+            .public_keys
+            .get(&compressed_public_key)
+            .ok_or(SignError::NoSuchAccount)?;
+
+        if account.is_locked {
+            return Err(SignError::AccountLocked);
+        }
+
+        let sign_data = unsigned_hash_data.to_sign_data(network);
+        let signature = account
+            .keypair
+            .private_key()
+            .sign(sign_data)
+            .map(|ref sign| sign.into())
+            .map_err(|err| SignError::EcdsaSignError(err.to_string()))?;
+
+        // Neo N3 tx hash is double-SHA256 of unsigned hash data (LE byte order).
+        let tx_hash = unsigned_hash_data.sha256().sha256();
+        Ok((signature, tx_hash))
     }
 
     pub fn extensible_sign_data(
