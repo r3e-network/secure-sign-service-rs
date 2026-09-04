@@ -110,6 +110,21 @@ pub struct ValidatedGasSweep {
     pub fee_total: u64,
 }
 
+/// All caller-supplied facts required to authorize an economic transaction.
+///
+/// Named fields make security-sensitive values such as amount, fee, and
+/// balance difficult to transpose at call sites.
+#[derive(Debug, Clone, Copy)]
+pub struct GasSweepValidationRequest<'a> {
+    pub raw_tx: &'a [u8],
+    pub public_key: &'a [u8],
+    pub network: u32,
+    pub idempotency_key: &'a str,
+    pub expected_amount: u64,
+    pub expected_fee_total: u64,
+    pub asserted_safe_balance: Option<u64>,
+}
+
 impl GasSweepSigningPolicy {
     /// Construct a fail-closed policy (no destination/source pin until configured).
     pub const fn new(network: u32, enabled: bool) -> Self {
@@ -197,14 +212,18 @@ impl GasSweepSigningPolicy {
     /// Fail-closed validation of an unsigned tx (hash-data, no witnesses).
     pub fn validate_sign_transaction(
         &self,
-        raw_tx: &[u8],
-        public_key: &[u8],
-        network: u32,
-        idempotency_key: &str,
-        expected_amount: u64,
-        expected_fee_total: u64,
-        asserted_safe_balance: Option<u64>,
+        request: GasSweepValidationRequest<'_>,
     ) -> Result<ValidatedGasSweep, GasSweepPolicyError> {
+        let GasSweepValidationRequest {
+            raw_tx,
+            public_key,
+            network,
+            idempotency_key,
+            expected_amount,
+            expected_fee_total,
+            asserted_safe_balance,
+        } = request;
+
         if !self.enabled {
             return Err(GasSweepPolicyError::Disabled);
         }
@@ -422,13 +441,33 @@ mod tests {
         )
     }
 
+    fn validation_request<'a>(
+        raw_tx: &'a [u8],
+        public_key: &'a [u8],
+        network: u32,
+        idempotency_key: &'a str,
+        expected_amount: u64,
+        expected_fee_total: u64,
+        asserted_safe_balance: Option<u64>,
+    ) -> GasSweepValidationRequest<'a> {
+        GasSweepValidationRequest {
+            raw_tx,
+            public_key,
+            network,
+            idempotency_key,
+            expected_amount,
+            expected_fee_total,
+            asserted_safe_balance,
+        }
+    }
+
     #[test]
     fn flag_off_rejects() {
         let policy = test_policy(false);
         let tx = good_tx(1, 1000, 1000);
         assert_eq!(
             policy
-                .validate_sign_transaction(
+                .validate_sign_transaction(validation_request(
                     &tx,
                     &test_source_pk(),
                     GAS_SWEEP_NETWORK_MAGIC,
@@ -436,7 +475,7 @@ mod tests {
                     1,
                     2000,
                     None
-                )
+                ))
                 .unwrap_err(),
             GasSweepPolicyError::Disabled
         );
@@ -449,7 +488,7 @@ mod tests {
         let tx = good_tx(1, 1000, 1000);
         assert_eq!(
             policy
-                .validate_sign_transaction(
+                .validate_sign_transaction(validation_request(
                     &tx,
                     &test_source_pk(),
                     GAS_SWEEP_NETWORK_MAGIC,
@@ -457,7 +496,7 @@ mod tests {
                     1,
                     2000,
                     None
-                )
+                ))
                 .unwrap_err(),
             GasSweepPolicyError::AllowlistNotConfigured
         );
@@ -470,7 +509,7 @@ mod tests {
         let fees = 2_000u64;
         let tx = good_tx(amount, 1000, 1000);
         let validated = policy
-            .validate_sign_transaction(
+            .validate_sign_transaction(validation_request(
                 &tx,
                 &test_source_pk(),
                 GAS_SWEEP_NETWORK_MAGIC,
@@ -478,11 +517,11 @@ mod tests {
                 amount,
                 fees,
                 Some(ONE_GAS_FRACTIONS + fees + amount),
-            )
+            ))
             .unwrap();
         assert_eq!(validated.amount, amount);
         policy
-            .validate_sign_transaction(
+            .validate_sign_transaction(validation_request(
                 &tx,
                 &test_source_pk(),
                 GAS_SWEEP_NETWORK_MAGIC,
@@ -490,11 +529,11 @@ mod tests {
                 amount,
                 fees,
                 Some(ONE_GAS_FRACTIONS + fees + amount + 1),
-            )
+            ))
             .unwrap();
         assert_eq!(
             policy
-                .validate_sign_transaction(
+                .validate_sign_transaction(validation_request(
                     &tx,
                     &test_source_pk(),
                     GAS_SWEEP_NETWORK_MAGIC,
@@ -502,7 +541,7 @@ mod tests {
                     amount,
                     fees,
                     Some(ONE_GAS_FRACTIONS + fees + amount - 1),
-                )
+                ))
                 .unwrap_err(),
             GasSweepPolicyError::ReserveViolation
         );
@@ -519,7 +558,7 @@ mod tests {
         let tx =
             encode_unsigned_transaction(42, 1000, 1000, 1000, &test_source_hash(), &bad_script);
         let err = policy
-            .validate_sign_transaction(
+            .validate_sign_transaction(validation_request(
                 &tx,
                 &test_source_pk(),
                 GAS_SWEEP_NETWORK_MAGIC,
@@ -527,7 +566,7 @@ mod tests {
                 amount,
                 fees,
                 None,
-            )
+            ))
             .unwrap_err();
         assert_eq!(err, GasSweepPolicyError::DestinationNotAllowlisted);
     }
@@ -539,7 +578,7 @@ mod tests {
         for key in ["unsafe\tkey", "unsafe\nkey", "unsafe key"] {
             assert_eq!(
                 policy
-                    .validate_sign_transaction(
+                    .validate_sign_transaction(validation_request(
                         &tx,
                         &test_source_pk(),
                         GAS_SWEEP_NETWORK_MAGIC,
@@ -547,14 +586,14 @@ mod tests {
                         1,
                         2000,
                         None,
-                    )
+                    ))
                     .unwrap_err(),
                 GasSweepPolicyError::InvalidIdempotencyKey
             );
         }
         assert_eq!(
             policy
-                .validate_sign_transaction(
+                .validate_sign_transaction(validation_request(
                     &tx,
                     &test_source_pk(),
                     GAS_SWEEP_NETWORK_MAGIC,
@@ -562,7 +601,7 @@ mod tests {
                     1,
                     2000,
                     None,
-                )
+                ))
                 .unwrap_err(),
             GasSweepPolicyError::InvalidIdempotencyKey
         );
@@ -599,7 +638,7 @@ mod tests {
         script.extend_from_slice(&crate::neo::gas_sweep_constants::SYSTEM_CONTRACT_CALL_ID);
         let tx = encode_unsigned_transaction(1, 1000, 1000, 10, &from, &script);
         assert!(matches!(
-            policy.validate_sign_transaction(
+            policy.validate_sign_transaction(validation_request(
                 &tx,
                 &test_source_pk(),
                 GAS_SWEEP_NETWORK_MAGIC,
@@ -607,7 +646,7 @@ mod tests {
                 amount,
                 2000,
                 None
-            ),
+            )),
             Err(GasSweepPolicyError::Script(ScriptPolicyError::AssetNotGas))
                 | Err(GasSweepPolicyError::Script(
                     ScriptPolicyError::RebuildMismatch
@@ -619,7 +658,7 @@ mod tests {
         let scope_idx = 1 + 4 + 8 + 8 + 4 + 1 + 20;
         raw[scope_idx] = 0x80; // Global
         assert!(matches!(
-            policy.validate_sign_transaction(
+            policy.validate_sign_transaction(validation_request(
                 &raw,
                 &test_source_pk(),
                 GAS_SWEEP_NETWORK_MAGIC,
@@ -627,7 +666,7 @@ mod tests {
                 amount,
                 2000,
                 None
-            ),
+            )),
             Err(GasSweepPolicyError::Tx(TxDecodeError::InvalidWitnessScope(
                 0x80
             )))

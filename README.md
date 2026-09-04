@@ -1,8 +1,13 @@
-# Secure Sign Service
+# Neo Signer RS
 
 ## Overview
-This is a secure sign service for NEO (https://github.com/neo-project).
-It provides secure signing capabilities through multiple deployment modes with hardware-based security features.
+Neo Signer RS is a fail-closed signing service for
+[Neo](https://github.com/neo-project). It keeps private-key operations inside a
+hardware-isolated execution environment and exposes narrowly scoped signing
+policies to trusted clients.
+
+Current release: **v0.2.0**. See [CHANGELOG.md](CHANGELOG.md) for release notes
+and [docs/RELEASE.md](docs/RELEASE.md) for the reproducible release procedure.
 
 ### Deployment Modes
 - **Mock Mode**: For development and testing purposes
@@ -14,11 +19,17 @@ It provides secure signing capabilities through multiple deployment modes with h
 - Secure key storage and management
 - Encrypted wallet support (NEP-6 format)
 - Isolated execution environments
-- A WireGuard-bound consensus gateway with persistent anti-equivocation checks
+- Neo N3 consensus-only validation at the parent gateway and inside the enclave
+- A WireGuard-bound gateway with durable, bounded anti-equivocation storage
+- KMS recipient-attestation unlock bound to the deployed EIF measurement
+- An optional allowlisted daily council GAS sweep with dual-RPC verification
+- systemd supervision, health recovery, and an idempotent local fallback timer
 
 ## Prerequisites
-NOTE: This is service for manageing private keys in scure.
-So it needs to be compiled manually. And the compiled product may needs to be signed(See how to sign SGX binary and AWS Nitrol Enclave image).
+
+Build and attest production artifacts in a controlled environment. Never place
+wallet passwords, WIFs, production destinations, KMS ciphertext, signing
+certificates, or enclave measurements in Git.
 
 ### For Mock Mode
 - Rust toolchain (latest stable version)
@@ -50,8 +61,8 @@ but do not trade signer availability for Spot interruption risk.
 ### Quick Start
 ```bash
 # Clone the repository
-git clone <repository-url>
-cd secure-sign-service-rs
+git clone https://github.com/r3e-network/secure-sign-service-rs.git neo-signer-rs
+cd neo-signer-rs
 
 # Build for development (TCP mode)
 make tcp
@@ -152,16 +163,16 @@ NOTE: Must run `secure-sign-tools` to decrypt wallet after start up
 ```bash
 # Run the enclave with default settings
 ./scripts/nitro/run.sh \
-    --cpu-count 2 \
-    --memory 512 \
+    --cpu-count 1 \
+    --memory 1024 \
     --cid 2345 \
     --eif-path secure-sign-nitro.eif
 
 # Run in debug mode for development
 ./scripts/nitro/run.sh \
     --debug \
-    --cpu-count 2 \
-    --memory 512 \
+    --cpu-count 1 \
+    --memory 1024 \
     --cid 2345 \
     --eif-path secure-sign-nitro.eif
 
@@ -211,6 +222,47 @@ economic path takes the shared signing permit only for the enclave call, so RPC
 latency cannot delay consensus. See [docs/IMPLEMENTATION.md](docs/IMPLEMENTATION.md)
 for deployment, scheduling, rollback, and GrokBot-trigger rules.
 
+### Production Service Topology
+
+The supported Nitro deployment installs these units:
+
+| Unit | Responsibility |
+|---|---|
+| `neo-nitro-enclave.service` | Runs the measured EIF |
+| `neo-nitro-unlock.service` | Performs KMS recipient-attestation unlock |
+| `neo-nitro-gateway.service` | Exposes the policy gateway on WireGuard only |
+| `neo-nitro-health.timer` | Detects failures and restarts the signer target |
+| `neo-gas-sweep.service` | Runs one explicit, allowlisted economic sweep |
+| `neo-gas-sweep.timer` | Host-local daily fallback with randomized delay |
+
+Install and enable the signer with `sudo ./deploy/install.sh`. The external
+automation trigger may start only `neo-gas-sweep.service` through an auditable
+remote-execution channel. It must not construct transactions, select a
+destination, or call the enclave directly.
+
+The production automation schedule is 09:00 Asia/Shanghai. The host timer runs
+at 09:05 Asia/Shanghai with up to five minutes of randomized delay. Both paths
+are intentionally safe to overlap: the daily plan and gateway journal ensure
+that retries reuse the same bytes and cannot create a second transaction for
+the same day.
+
+### EIF and KMS Policy Rotation
+
+Every EIF rebuild changes PCR0. Treat a KMS policy update and an EIF deployment
+as one release operation:
+
+1. Record the currently allowed image digest and the candidate EIF PCR0.
+2. Temporarily allow both values in the attestation condition.
+3. Deploy the candidate EIF and perform a controlled cold start.
+4. Require a fresh KMS recipient unlock, signer `Single` status, active gateway,
+   advancing consensus journal, and advancing chain height.
+5. Replace the transition condition with the candidate digest only and read the
+   policy back before declaring the release complete.
+
+Never remove the running measurement before the candidate has completed an
+attested cold start. Never leave the previous measurement enabled after the
+validation window.
+
 For a production installation, set `SIGNER_BASE`, `SIGNER_TOOL`,
 `KMS_CIPHERTEXT_BLOB_PATH`, and `SIGNER_PUBLIC_KEY` in the KMS unlock service.
 When `SIGNER_PUBLIC_KEY` is configured, the parent instance does not need a
@@ -246,13 +298,13 @@ The service uses NEP-6 wallet format. Example wallet structure:
     },
     "accounts": [
         {
-            "address": "NUz6PKTAM7NbPJzkKJFNay3VckQtcDkgWo",
+            "address": "<neo-address>",
             "label": null,
             "isdefault": true,
             "lock": false,
-            "key": "6PYWucwbu5pQV9j1wq9kyb571qxUhqDK6vcTsGQtoJXuErzhfptc72RdGF",
+            "key": "<encrypted-nep2-key>",
             "contract": {
-                "script": "DCECb/A7lJJBzh2t1DUZ5pYOCoW0GmmgXDKBA6orzhWUyhZBVuezJw==",
+                "script": "<base64-verification-script>",
                 "deployed": false,
                 "parameters": [{"name": "signature", "type": "Signature"}]
             }
@@ -280,17 +332,18 @@ Service definitions are located in:
 
 ## Project Structure
 ```
-secure-sign-service-rs/
-├── secure-sign/              # Main application with mock mode
-├── secure-sign-core/         # Core cryptographic and NEO functionality
-├── secure-sign-sgx/          # SGX enclave application
+neo-signer-rs/
+├── secure-sign/              # Signer, startup service, and operator tools
+├── secure-sign-core/         # Neo validation and cryptographic primitives
+├── secure-sign-rpc/          # gRPC and vsock service definitions
+├── secure-sign-nitro/        # Nitro Secure Module integration
+├── secure-sign-gateway/      # WireGuard-bound parent policy gateway
+├── secure-sign-neo-rpc/      # Independent Neo RPC verification
+├── secure-sign-sweeper/      # Deterministic daily GAS sweep client
+├── secure-sign-sgx/          # SGX host application
 ├── secure-sign-sgx-enclave/  # SGX enclave implementation
-├── secure-sign-nitro/        # AWS Nitro Enclave specific code
-├── secure-sign-rpc/          # RPC service definitions
-│   ├── nitro/               # AWS Nitro Enclave scripts
-│   └── sgx/                 # SGX scripts
-└── config/                  # Configuration files
-    └── nep6_wallet.json     # Example wallet
+├── deploy/                   # Hardened systemd units and installer
+└── scripts/                  # Build, attestation, and unlock helpers
 ```
 
 ## Security Considerations
@@ -304,3 +357,29 @@ secure-sign-service-rs/
 - Private keys are encrypted using NEP-6 standard
 - Keys are decrypted only within secure enclaves
 - No persistent storage of decrypted keys
+- Parent hosts receive only KMS ciphertext for the one-time recipient flow
+- Production EIFs and KMS ciphertext are sensitive deployment artifacts even
+  though they do not contain plaintext keys
+- Startup and signing endpoints must remain private; expose only the
+  WireGuard-bound policy gateway
+- Rotate KMS attestation policy values with the measured-EIF procedure above
+
+## Release Verification
+
+A release is complete only after all of these gates pass:
+
+```bash
+./scripts/check-format.sh
+cargo test --workspace
+cargo clippy --workspace --all-targets --no-deps -- -D warnings
+cargo audit --ignore RUSTSEC-2023-0071
+cargo audit --file secure-sign-sgx/Cargo.lock --ignore RUSTSEC-2023-0071
+cargo audit --file secure-sign-sgx-enclave/Cargo.lock --ignore RUSTSEC-2023-0071
+make linux-arm64
+```
+
+The RSA advisory exception is limited to the documented ephemeral key-generation
+path; Rust `rsa` decrypt/sign padding APIs are not used. Release artifacts must
+be checksummed, the tag must point at the tested commit, and production status
+must be read back independently after deployment. See
+[docs/RELEASE.md](docs/RELEASE.md) for the complete checklist.

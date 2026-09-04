@@ -13,7 +13,9 @@ use secure_sign_core::h160::{H160, H160_SIZE};
 use secure_sign_core::neo::consensus::{
     ConsensusMessageMetadata, ConsensusMessageType, ConsensusSigningPolicy,
 };
-use secure_sign_core::neo::gas_sweep_policy::{build_deploy_policy, GasSweepSigningPolicy};
+use secure_sign_core::neo::gas_sweep_policy::{
+    build_deploy_policy, GasSweepSigningPolicy, GasSweepValidationRequest,
+};
 use secure_sign_core::neo::sign::Signer;
 use secure_sign_neo_rpc::DualRpcVerifier;
 use secure_sign_rpc::servicepb::secure_sign_client::SecureSignClient;
@@ -39,7 +41,10 @@ const LEGACY_OFFSET_KEY: &str = "legacy_imported_bytes";
 const LEGACY_HASH_KEY: &str = "legacy_prefix_sha256";
 
 #[derive(Debug, Parser)]
-#[command(about = "Consensus-only TCP gateway for a Nitro Enclave signer")]
+#[command(
+    version,
+    about = "Consensus-only TCP gateway for a Nitro Enclave signer"
+)]
 struct Args {
     #[arg(long, default_value = "10.78.0.1:9991")]
     listen: SocketAddr,
@@ -534,15 +539,15 @@ impl SecureSign for Gateway {
         // network request. Balance binding is repeated below after dual-RPC proof.
         let preliminary = self
             .gas_sweep_policy
-            .validate_sign_transaction(
-                &request.raw_tx,
-                &request.public_key,
-                request.network,
-                &request.idempotency_key,
-                request.expected_amount,
-                request.expected_fee_total,
-                None,
-            )
+            .validate_sign_transaction(GasSweepValidationRequest {
+                raw_tx: &request.raw_tx,
+                public_key: &request.public_key,
+                network: request.network,
+                idempotency_key: &request.idempotency_key,
+                expected_amount: request.expected_amount,
+                expected_fee_total: request.expected_fee_total,
+                asserted_safe_balance: None,
+            })
             .map_err(gas_sweep_status)?;
 
         let slot = format!("economic/{}/{JOURNAL_VERSION}", request.idempotency_key);
@@ -573,15 +578,15 @@ impl SecureSign for Gateway {
                         Status::failed_precondition(format!("dual-RPC verification failed: {err}"))
                     })?;
                 self.gas_sweep_policy
-                    .validate_sign_transaction(
-                        &request.raw_tx,
-                        &request.public_key,
-                        request.network,
-                        &request.idempotency_key,
-                        request.expected_amount,
-                        request.expected_fee_total,
-                        Some(verified.safe_balance),
-                    )
+                    .validate_sign_transaction(GasSweepValidationRequest {
+                        raw_tx: &request.raw_tx,
+                        public_key: &request.public_key,
+                        network: request.network,
+                        idempotency_key: &request.idempotency_key,
+                        expected_amount: request.expected_amount,
+                        expected_fee_total: request.expected_fee_total,
+                        asserted_safe_balance: Some(verified.safe_balance),
+                    })
                     .map_err(gas_sweep_status)?;
                 self.reserve(Some(slot), &preliminary.tx.tx_hash_le())
                     .await?;

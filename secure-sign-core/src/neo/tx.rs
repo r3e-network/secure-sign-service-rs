@@ -210,14 +210,8 @@ mod tests {
     #[test]
     fn decodes_encoded_roundtrip() {
         let script = build_gas_transfer_script(&test_from(), &test_to(), 10_000_000_000);
-        let raw = encode_unsigned_transaction(
-            3909438403,
-            215925,
-            37824,
-            12935784,
-            &test_from(),
-            &script,
-        );
+        let raw =
+            encode_unsigned_transaction(3909438403, 215925, 37824, 12935784, &test_from(), &script);
         let tx = decode_unsigned_transaction(&raw).unwrap();
         assert_eq!(tx.version, 0);
         assert_eq!(tx.nonce, 3909438403);

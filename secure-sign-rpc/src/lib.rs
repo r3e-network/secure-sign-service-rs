@@ -11,7 +11,9 @@ pub mod vsock;
 use secure_sign_core::bytes::ToArray;
 use secure_sign_core::h160::{H160, H160_SIZE};
 use secure_sign_core::neo::consensus::{ConsensusPolicyError, ConsensusSigningPolicy};
-use secure_sign_core::neo::gas_sweep_policy::{GasSweepPolicyError, GasSweepSigningPolicy};
+use secure_sign_core::neo::gas_sweep_policy::{
+    GasSweepPolicyError, GasSweepSigningPolicy, GasSweepValidationRequest,
+};
 use secure_sign_core::neo::sign::{SignError, Signer};
 use servicepb::{secure_sign_server::SecureSign, *};
 use tonic::async_trait;
@@ -179,15 +181,15 @@ impl SecureSign for DefaultSignService {
         // Chain-state dual-RPC binding is enforced on the gateway when enabled.
         let validated = self
             .gas_sweep_policy
-            .validate_sign_transaction(
-                &req.raw_tx,
-                &req.public_key,
-                req.network,
-                &req.idempotency_key,
-                req.expected_amount,
-                req.expected_fee_total,
-                None,
-            )
+            .validate_sign_transaction(GasSweepValidationRequest {
+                raw_tx: &req.raw_tx,
+                public_key: &req.public_key,
+                network: req.network,
+                idempotency_key: &req.idempotency_key,
+                expected_amount: req.expected_amount,
+                expected_fee_total: req.expected_fee_total,
+                asserted_safe_balance: None,
+            })
             .map_err(|err| err.into_rpc_status())?;
 
         let (signature, tx_hash) = self

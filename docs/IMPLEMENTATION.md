@@ -1,7 +1,7 @@
-# Allowlisted daily council GAS sweep
+# Neo Signer RS v0.2.0 implementation
 
-**Branch:** `feat/enclave-gas-sweep-enable`
-**Date:** 2026-09-04 (Asia/Shanghai)
+**Release:** `v0.2.0`
+**Date:** 2026-09-04
 
 ## What landed
 
@@ -102,11 +102,31 @@ sudo systemctl show neo-gas-sweep.service -p Result -p ExecMainStatus
 sudo journalctl -u neo-gas-sweep.service -n 30 --no-pager
 ```
 
-GrokBot must only start this audited unit through SSM and report the unit result
-plus the transaction hash. It must never generate raw transactions, choose a
-destination, or call the signer RPC directly. `neo-gas-sweep.timer` is a
-host-local daily fallback at 09:05 Asia/Shanghai; the durable plan and gateway
-journal make duplicate triggers safe.
+GrokBot must only start this audited unit through SSM `AWS-RunShellScript` and
+report the fresh command ID, terminal SSM status, response code, service start
+time, unit result, and plan status. Historical chat output or a persisted
+confirmed plan is not evidence that the current automation invocation ran. It
+must never generate raw transactions, choose a destination, or call the signer
+RPC directly.
+
+The external routine runs daily at 09:00 Asia/Shanghai. The host-local
+`neo-gas-sweep.timer` is a fallback at 09:05 with up to five minutes of
+randomized delay. The durable plan and gateway journal make overlapping or
+repeated triggers safe.
+
+## Measured EIF rollout
+
+AWS KMS `kms:RecipientAttestation:ImageSha384` corresponds to the EIF PCR0.
+Every rebuilt EIF therefore requires an attestation-policy rollout:
+
+1. Add the candidate PCR0 alongside the running PCR0 temporarily.
+2. Install the candidate and perform a controlled signer cold start.
+3. Require a fresh recipient-attestation decrypt, `Single` signer status,
+   active services, live consensus journal writes, and advancing chain height.
+4. Remove the previous PCR0 and read the final single-value policy back.
+
+Do not infer KMS readiness from an enclave that was unlocked before the policy
+change. A cold start is the acceptance test for restart survivability.
 
 Emergency stop:
 
@@ -139,6 +159,9 @@ cargo test -p secure-sign-neo-rpc
 cargo test -p secure-sign-gateway
 cargo test -p secure-sign-sweeper
 ```
+
+The complete source, artifact, deployment, KMS, automation, and rollback gates
+are documented in [RELEASE.md](RELEASE.md).
 
 Tests use clearly fake/TEST-ONLY script hashes generated in-test (e.g. `[0x11;20]` / `[0x22;20]`),
 never real MainNet operational addresses.
