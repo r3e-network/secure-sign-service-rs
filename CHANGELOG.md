@@ -6,6 +6,17 @@ The project follows [Semantic Versioning](https://semver.org/), with the usual
 pre-1.0 rule that minor releases may introduce operationally significant
 changes.
 
+## [Unreleased]
+
+### Fixed
+
+- Recognize Neo N3's standard object-shaped broadcast acknowledgement and
+  compact `AlreadyExists` errors instead of reporting a false broadcast failure.
+- Reconcile unresolved saved sweeps before signing or rebroadcasting, requiring
+  a matching transaction ID, VM `HALT`, and a successful transfer return value.
+- Document bounded observation of systemd automatic recovery and end-to-end
+  acceptance checks for GrokBot's daily GAS sweep routine.
+
 ## [0.2.0] - 2026-09-04
 
 ### Added

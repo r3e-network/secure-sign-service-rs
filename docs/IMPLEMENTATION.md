@@ -69,14 +69,19 @@ Unset allowlist while enabled → `AllowlistNotConfigured` / startup config erro
 7. Hold the consensus signing semaphore only during the sub-second enclave
    signature call. All external RPC work happens before it, so economic work
    cannot delay normal dBFT signing.
-8. Verify the returned P-256 signature locally, broadcast, and wait for a HALT
-   application log under Neo N3's single-SHA256 transaction ID before marking
-   the local plan confirmed.
+8. Verify the returned P-256 signature locally and accept Neo N3's standard
+   `sendrawtransaction` result object (`{"hash":"0x..."}`). A broadcast
+   acknowledgement is not confirmation: require an application log matching
+   the locally calculated single-SHA256 transaction ID, VM `HALT`, and the
+   successful boolean transfer result before marking the plan confirmed.
 
 The sweep client is dry-run by default. Production execution requires the
 explicit `--broadcast` argument used by `neo-gas-sweep.service`. The state file
 is mode 0600 and supports retrying the exact signed transaction after a process
-or network interruption.
+or network interruption. Before retrying an unresolved saved transaction,
+reconcile its application log. If already successful, record both confirmation
+and its broadcast hash without signing or broadcasting again. Never replace a
+pending same-day plan simply because its broadcast acknowledgement was lost.
 
 The official RustCrypto `rsa` crate is used only for in-enclave generation and
 PKCS#8 export of an ephemeral KMS recipient key. The Rust RSA decrypt/sign
@@ -108,6 +113,19 @@ time, unit result, and plan status. Historical chat output or a persisted
 confirmed plan is not evidence that the current automation invocation ran. It
 must never generate raw transactions, choose a destination, or call the signer
 RPC directly.
+
+The unit uses `Restart=on-failure`, a 20-second restart delay, and a bounded
+start limit. A failed first attempt is not a terminal daily sweep failure.
+GrokBot must follow the unit through automatic retries for a bounded observation
+window (up to ten minutes), recording `ActiveState`, `SubState`, `NRestarts`,
+`Result`, `ExecMainStatus`, and fresh journal output. Report `recovering` while
+the unit is restarting; report recovery only after the fresh run exits zero and
+the current-day plan is `confirmed` or `no_op`. Verify confirmed transactions
+against their matching on-chain application logs. If the window expires or the
+start limit is reached, report the actual terminal state and retain the plan.
+Do not manually trigger another transaction. The SSM shell's final exit status
+must reflect acceptance checks, not the success of a trailing status-print or
+JSON command. SSM `Success` alone does not establish sweep success.
 
 The external routine runs daily at 09:00 Asia/Shanghai. The host-local
 `neo-gas-sweep.timer` is a fallback at 09:05 with up to five minutes of

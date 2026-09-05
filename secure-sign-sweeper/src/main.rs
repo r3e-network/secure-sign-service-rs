@@ -187,13 +187,22 @@ async fn main() -> Result<(), Box<dyn Error>> {
     )?;
 
     let mut plan = match load_plan(&args.state_path)? {
-        Some(existing) if existing.day == day => {
+        Some(mut existing) if existing.day == day => {
             validate_saved_plan(
                 &existing,
                 &args,
                 &source.to_string(),
                 &destination.to_string(),
             )?;
+            if args.broadcast
+                && matches!(
+                    existing.status,
+                    PlanStatus::Planned | PlanStatus::Signed | PlanStatus::Broadcast
+                )
+            {
+                let log = verifier.application_log(&existing.transaction_hash).await?;
+                confirm_plan_from_log(&mut existing, log.as_ref())?;
+            }
             existing
         }
         Some(existing)
@@ -211,11 +220,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 &source.to_string(),
                 &destination.to_string(),
             )?;
-            if let Some(log) = verifier.application_log(&existing.transaction_hash).await? {
-                if !application_log_halted(&log)? {
-                    return Err("an earlier sweep entered a non-HALT VM state".into());
-                }
-                existing.status = PlanStatus::Confirmed;
+            let log = verifier.application_log(&existing.transaction_hash).await?;
+            if confirm_plan_from_log(&mut existing, log.as_ref())? {
                 save_plan(&args.state_path, &existing)?;
                 build_plan(&args, &verifier, &public_key, &day).await?
             } else {
@@ -515,10 +521,8 @@ async fn wait_for_confirmation(
     let started = tokio::time::Instant::now();
     loop {
         if let Some(log) = verifier.application_log(transaction_hash).await? {
-            if application_log_halted(&log)? {
-                return Ok(());
-            }
-            return Err("broadcast transaction entered a non-HALT VM state".into());
+            validate_confirmation(&log, transaction_hash)?;
+            return Ok(());
         }
         if started.elapsed() >= timeout {
             return Err("timed out waiting for on-chain application log".into());
@@ -527,7 +531,27 @@ async fn wait_for_confirmation(
     }
 }
 
-fn application_log_halted(log: &Value) -> Result<bool, Box<dyn Error>> {
+fn confirm_plan_from_log(
+    plan: &mut SweepPlan,
+    log: Option<&Value>,
+) -> Result<bool, Box<dyn Error>> {
+    let Some(log) = log else {
+        return Ok(false);
+    };
+    validate_confirmation(log, &plan.transaction_hash)?;
+    plan.broadcast_hash = Some(plan.transaction_hash.clone());
+    plan.status = PlanStatus::Confirmed;
+    Ok(true)
+}
+
+fn validate_confirmation(log: &Value, expected_hash: &str) -> Result<(), Box<dyn Error>> {
+    let hash = log
+        .get("txid")
+        .and_then(Value::as_str)
+        .ok_or("application log has no transaction ID")?;
+    if tx_hash_le_from_string(hash)? != tx_hash_le_from_string(expected_hash)? {
+        return Err("application log transaction ID does not match the sweep".into());
+    }
     let executions = log
         .get("executions")
         .and_then(Value::as_array)
@@ -535,13 +559,27 @@ fn application_log_halted(log: &Value) -> Result<bool, Box<dyn Error>> {
     if executions.is_empty() {
         return Err("application log has no executions".into());
     }
-    Ok(executions.iter().all(|execution| {
-        execution
+    for execution in executions {
+        if execution
             .get("vmstate")
             .or_else(|| execution.get("state"))
             .and_then(Value::as_str)
-            == Some("HALT")
-    }))
+            != Some("HALT")
+        {
+            return Err("sweep transaction entered a non-HALT VM state".into());
+        }
+        let stack = execution
+            .get("stack")
+            .and_then(Value::as_array)
+            .ok_or("application log has no transfer result")?;
+        if stack.len() != 1
+            || stack[0].get("type").and_then(Value::as_str) != Some("Boolean")
+            || stack[0].get("value").and_then(Value::as_bool) != Some(true)
+        {
+            return Err("sweep transfer did not return true".into());
+        }
+    }
+    Ok(())
 }
 
 fn shanghai_day() -> String {
@@ -658,7 +696,111 @@ fn print_result(plan: &SweepPlan, broadcast: bool) -> Result<(), Box<dyn Error>>
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
     use tempfile::tempdir;
+
+    fn pending_plan(status: PlanStatus) -> SweepPlan {
+        SweepPlan {
+            version: PLAN_VERSION,
+            day: "2026-09-05".to_owned(),
+            created_at: "2026-09-05T01:00:00Z".to_owned(),
+            network: GAS_SWEEP_NETWORK_MAGIC,
+            source_script_hash: format!("0x{}", "11".repeat(20)),
+            destination_script_hash: format!("0x{}", "22".repeat(20)),
+            unsigned_tx_base64: "AA==".to_owned(),
+            expected_amount: 1,
+            expected_fee_total: 2,
+            transaction_hash: format!("0x{}", "33".repeat(32)),
+            signature_base64: Some("signed-bytes-unchanged".to_owned()),
+            broadcast_hash: None,
+            status,
+        }
+    }
+
+    fn successful_log(plan: &SweepPlan) -> Value {
+        json!({
+            "txid": plan.transaction_hash,
+            "executions": [{"trigger":"Application", "vmstate":"HALT",
+                "stack":[{"type":"Boolean", "value":true}]}]
+        })
+    }
+
+    #[test]
+    fn pending_plan_reconciles_without_changing_signed_transaction() {
+        for status in [
+            PlanStatus::Planned,
+            PlanStatus::Signed,
+            PlanStatus::Broadcast,
+        ] {
+            let mut plan = pending_plan(status);
+            let log = successful_log(&plan);
+            assert!(confirm_plan_from_log(&mut plan, Some(&log)).unwrap());
+            assert_eq!(plan.status, PlanStatus::Confirmed);
+            assert_eq!(
+                plan.broadcast_hash.as_deref(),
+                Some(plan.transaction_hash.as_str())
+            );
+            assert_eq!(plan.unsigned_tx_base64, "AA==");
+            assert_eq!(
+                plan.signature_base64.as_deref(),
+                Some("signed-bytes-unchanged")
+            );
+            let dir = tempdir().unwrap();
+            let path = dir.path().join("plan.json");
+            save_plan(&path, &plan).unwrap();
+            let saved = load_plan(&path).unwrap().unwrap();
+            assert_eq!(saved.status, PlanStatus::Confirmed);
+            assert_eq!(saved.broadcast_hash, plan.broadcast_hash);
+        }
+    }
+
+    #[test]
+    fn missing_log_leaves_plan_pending() {
+        let mut plan = pending_plan(PlanStatus::Signed);
+        assert!(!confirm_plan_from_log(&mut plan, None).unwrap());
+        assert_eq!(plan.status, PlanStatus::Signed);
+        assert!(plan.broadcast_hash.is_none());
+    }
+
+    #[test]
+    fn invalid_confirmation_never_marks_plan_successful() {
+        let original = pending_plan(PlanStatus::Signed);
+        let valid = successful_log(&original);
+        let mut invalid = Vec::new();
+        for txid in [
+            Value::Null,
+            json!(format!("0x{}", "44".repeat(32))),
+            json!("malformed"),
+        ] {
+            let mut log = valid.clone();
+            log["txid"] = txid;
+            invalid.push(log);
+        }
+        for state in ["FAULT", "NONE"] {
+            let mut log = valid.clone();
+            log["executions"][0]["vmstate"] = json!(state);
+            invalid.push(log);
+        }
+        for stack in [
+            json!([]),
+            json!([{"type":"Boolean","value":false}]),
+            json!([{"type":"Boolean","value":"true"}]),
+            json!([{"type":"Integer","value":"1"}]),
+        ] {
+            let mut log = valid.clone();
+            log["executions"][0]["stack"] = stack;
+            invalid.push(log);
+        }
+        let mut empty = valid.clone();
+        empty["executions"] = json!([]);
+        invalid.push(empty);
+        for log in invalid {
+            let mut plan = pending_plan(PlanStatus::Signed);
+            assert!(confirm_plan_from_log(&mut plan, Some(&log)).is_err());
+            assert_eq!(plan.status, PlanStatus::Signed);
+            assert!(plan.broadcast_hash.is_none());
+        }
+    }
 
     #[test]
     fn gateway_must_be_private_http() {

@@ -104,7 +104,13 @@ The automation runner may only start `neo-gas-sweep.service` through AWS SSM
 - service start time later than the automation trigger;
 - systemd `Result=success` and `ExecMainStatus=0`;
 - plan status `confirmed` or `no_op`;
-- matching transaction and broadcast hashes for a confirmed plan.
+- matching transaction and broadcast hashes for a confirmed plan;
+- a matching on-chain application log with `HALT` and boolean transfer success.
+
+Follow the unit's automatic restarts rather than treating its first nonzero
+exit as the terminal result. Record `NRestarts` and observe for a bounded window
+as described in [Operations](IMPLEMENTATION.md#operations). The SSM wrapper
+must exit nonzero when acceptance fails even if its diagnostic commands succeed.
 
 Run the automation twice during acceptance. The second invocation must reuse
 the confirmed transaction bytes and must not broadcast a second transaction.

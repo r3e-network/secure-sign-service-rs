@@ -226,8 +226,16 @@ impl DualRpcVerifier {
         for endpoint in &self.endpoints {
             match endpoint.call("sendrawtransaction", params.clone()).await {
                 Ok(value) => {
-                    if let Some(hash) = value.as_str() {
-                        return Ok(hash.to_owned());
+                    if let Some(hash) = value
+                        .get("hash")
+                        .and_then(Value::as_str)
+                        .or_else(|| value.as_str())
+                    {
+                        let digits = hash.strip_prefix("0x").unwrap_or(hash);
+                        if digits.len() == 64 && digits.bytes().all(|byte| byte.is_ascii_hexdigit())
+                        {
+                            return Ok(hash.to_owned());
+                        }
                     }
                     if value == Value::Bool(true) {
                         return Ok(String::new());
@@ -629,6 +637,7 @@ fn sanitize_rpc_error(value: &Value) -> String {
 fn is_duplicate_broadcast(reason: &str) -> bool {
     let lower = reason.to_ascii_lowercase();
     lower.contains("already exists")
+        || lower == "alreadyexists"
         || lower.contains("already in")
         || lower.contains("already known")
 }
@@ -642,6 +651,123 @@ mod tests {
     use super::*;
     use secure_sign_core::neo::gas_transfer_script::build_gas_transfer_script;
     use secure_sign_core::neo::tx::encode_unsigned_transaction;
+    use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+    use tokio::net::TcpListener;
+
+    async fn broadcast_replies(replies: Vec<Value>) -> Result<String, RpcVerificationError> {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let endpoint = Url::parse(&format!("http://{}", listener.local_addr().unwrap())).unwrap();
+        let server = tokio::spawn(async move {
+            for reply in replies {
+                let (stream, _) = listener.accept().await.unwrap();
+                let mut stream = BufReader::new(stream);
+                let mut length = 0;
+                loop {
+                    let mut line = String::new();
+                    assert_ne!(stream.read_line(&mut line).await.unwrap(), 0);
+                    if line == "\r\n" {
+                        break;
+                    }
+                    if let Some(value) = line.to_ascii_lowercase().strip_prefix("content-length:") {
+                        length = value.trim().parse::<usize>().unwrap();
+                    }
+                }
+                let mut body = vec![0; length];
+                stream.read_exact(&mut body).await.unwrap();
+                let request: Value = serde_json::from_slice(&body).unwrap();
+                assert_eq!(request["method"], "sendrawtransaction");
+                assert_eq!(request["params"], json!([BASE64.encode([1, 2, 3])]));
+                let body = reply.to_string();
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                    body.len(), body
+                );
+                stream.write_all(response.as_bytes()).await.unwrap();
+            }
+        });
+        // Local fixtures bypass endpoint construction only inside this test module.
+        let client = NeoRpcClient {
+            endpoint,
+            label: "fixture".to_owned(),
+            client: Client::builder()
+                .no_proxy()
+                .timeout(Duration::from_secs(2))
+                .build()
+                .unwrap(),
+        };
+        let verifier = DualRpcVerifier {
+            endpoints: [client.clone(), client],
+            max_height_skew: 3,
+            max_valid_until_delta: 100,
+        };
+        let result = verifier.broadcast(&[1, 2, 3]).await;
+        tokio::time::timeout(Duration::from_secs(3), server)
+            .await
+            .unwrap()
+            .unwrap();
+        result
+    }
+
+    #[tokio::test]
+    async fn broadcast_accepts_standard_neo_hash_object() {
+        let hash = format!("0x{}", "12".repeat(32));
+        let result = broadcast_replies(vec![
+            json!({"jsonrpc":"2.0", "id":1, "result":{"hash":hash}}),
+        ])
+        .await;
+        assert_eq!(result.unwrap(), hash);
+    }
+
+    #[tokio::test]
+    async fn broadcast_falls_back_after_rejection() {
+        let hash = format!("0x{}", "34".repeat(32));
+        let result = broadcast_replies(vec![
+            json!({"jsonrpc":"2.0", "id":1, "result":false}),
+            json!({"jsonrpc":"2.0", "id":1, "result":{"hash":hash}}),
+        ])
+        .await;
+        assert_eq!(result.unwrap(), hash);
+    }
+
+    #[tokio::test]
+    async fn broadcast_rejects_empty_malformed_and_failed_results() {
+        for value in [
+            json!(false),
+            Value::Null,
+            json!({}),
+            json!({"hash":""}),
+            json!(""),
+            json!({"hash":"not-a-hash"}),
+        ] {
+            let reply = json!({"jsonrpc":"2.0", "id":1, "result":value});
+            assert!(broadcast_replies(vec![reply.clone(), reply]).await.is_err());
+        }
+    }
+
+    #[tokio::test]
+    async fn broadcast_preserves_string_boolean_and_duplicate_acknowledgements() {
+        let hash = format!("0x{}", "56".repeat(32));
+        assert_eq!(
+            broadcast_replies(vec![json!({"jsonrpc":"2.0", "id":1, "result":hash})])
+                .await
+                .unwrap(),
+            hash
+        );
+        assert_eq!(
+            broadcast_replies(vec![json!({"jsonrpc":"2.0", "id":1, "result":true})])
+                .await
+                .unwrap(),
+            ""
+        );
+        assert_eq!(
+            broadcast_replies(vec![
+                json!({"jsonrpc":"2.0", "id":1, "error":{"code":-501,"message":"AlreadyExists"}})
+            ])
+            .await
+            .unwrap(),
+            ""
+        );
+    }
 
     fn snapshot(height: u32) -> RpcSnapshot {
         RpcSnapshot {
@@ -701,6 +827,7 @@ mod tests {
     fn neo_duplicate_broadcast_errors_are_idempotent() {
         assert!(is_duplicate_broadcast("Inventory already exists on chain"));
         assert!(is_duplicate_broadcast("Already in the mempool"));
+        assert!(is_duplicate_broadcast("AlreadyExists"));
         assert!(!is_duplicate_broadcast("Insufficient network fee"));
     }
 
