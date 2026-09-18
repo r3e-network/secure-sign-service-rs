@@ -1,0 +1,8 @@
+edition = "2021"
+
+# tonic-build writes these with prettyplease. rustfmt disagrees, including on
+# HEAD. Keep cargo fmt from rewriting generator output.
+ignore = [
+    "secure-sign-rpc/src/servicepb.rs",
+    "secure-sign-rpc/src/startpb.rs",
+]

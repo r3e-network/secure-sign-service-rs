@@ -7,7 +7,7 @@ files=()
 while IFS= read -r file; do
   case "$file" in
     secure-sign-rpc/src/servicepb.rs | secure-sign-rpc/src/startpb.rs)
-      # build.rs regenerates these files through tonic-build.
+      # build.rs regenerates these files through tonic-build / prettyplease.
       continue
       ;;
   esac
@@ -20,3 +20,4 @@ if ((${#files[@]} == 0)); then
 fi
 
 rustfmt --edition 2021 --check --config skip_children=true "${files[@]}"
+"$ROOT_DIR/scripts/check-generated.sh"

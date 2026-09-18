@@ -12,3 +12,9 @@
 **/.DS_Store
 **/venv/
 secure-sign-sgx-enclave/*.py
+
+# Cross-compilation toolchain config. It names an absolute linker path on the
+# machine that generated it, so committing it would break every other checkout.
+/.cargo/
+
+# CodeGraph index: local per machine. The directory carries its own ignore file.
