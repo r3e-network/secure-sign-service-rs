@@ -34,14 +34,36 @@ install -m 0755 "$ROOT_DIR/target/secure-sign-tools" /opt/neo-signer/bin/
 install -m 0755 "$ROOT_DIR/target/secure-sign-gateway" /opt/neo-signer/bin/
 install -m 0755 "$ROOT_DIR/target/secure-sign-sweeper" /opt/neo-signer/bin/
 install -m 0755 "$ROOT_DIR/scripts/auto-unlock-kms-recipient.sh" /opt/neo-signer/bin/
+install -d -m 0755 /opt/neo-signer/bin/lib
 install -m 0755 "$ROOT_DIR/deploy/run-gateway.sh" /opt/neo-signer/bin/
+install -m 0644 "$ROOT_DIR/deploy/lib/workload-identities.sh" /opt/neo-signer/bin/lib/
 install -m 0755 "$ROOT_DIR/deploy/health-check.sh" /opt/neo-signer/bin/
+install -m 0640 "$ROOT_DIR/deploy/signer.env.example" /etc/neo-signer/signer.env.example
+if [[ ! -f /etc/neo-signer/workload-identities ]]; then
+  install -o neo-signer -g neo-signer -m 0600 /dev/null /etc/neo-signer/workload-identities
+fi
+chmod 0600 /etc/neo-signer/workload-identities
 install -m 0600 "$EIF_PATH" /opt/neo-signer/enclave/council-signer.eif
 install -o neo-signer -g neo-signer -m 0600 "$CIPHERTEXT_PATH" \
   /var/lib/neo-signer/wallet-passphrase.kms.bin
 install -m 0640 "$SIGNER_ENV_PATH" /etc/neo-signer/signer.env
 chown root:neo-signer /etc/neo-signer/signer.env
 install -m 0644 "$ROOT_DIR"/deploy/systemd/* /etc/systemd/system/
+
+if ! grep -Eq '^(GATEWAY_WORKLOAD_IDENTITIES|GATEWAY_WORKLOAD_IDENTITIES_FILE|GATEWAY_WORKLOAD_IDENTITIES_FD)=' \
+    /etc/neo-signer/signer.env; then
+  printf '\nGATEWAY_WORKLOAD_IDENTITIES_FILE=/etc/neo-signer/workload-identities\n' \
+    >> /etc/neo-signer/signer.env
+fi
+# shellcheck source=lib/workload-identities.sh
+. /opt/neo-signer/bin/lib/workload-identities.sh
+set -a
+# shellcheck disable=SC1091
+. /etc/neo-signer/signer.env
+set +a
+if ! require_gateway_identities; then
+  echo "neo-nitro-gateway.service will refuse to start until a 0600 identities file, env table, or credential fd is populated" >&2
+fi
 
 systemctl daemon-reload
 systemctl enable neo-nitro-signer.target neo-nitro-health.timer

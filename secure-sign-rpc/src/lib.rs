@@ -10,13 +10,34 @@ pub mod vsock;
 
 use secure_sign_core::bytes::ToArray;
 use secure_sign_core::h160::{H160, H160_SIZE};
+use secure_sign_core::limits::{
+    validate_extensible_request, validate_public_key, validate_raw_tx, validate_trimmed_block,
+    MAX_RPC_MESSAGE_BYTES,
+};
 use secure_sign_core::neo::consensus::{ConsensusPolicyError, ConsensusSigningPolicy};
 use secure_sign_core::neo::gas_sweep_policy::{
     GasSweepPolicyError, GasSweepSigningPolicy, GasSweepValidationRequest,
 };
 use secure_sign_core::neo::sign::{SignError, Signer};
-use servicepb::{secure_sign_server::SecureSign, *};
+use servicepb::{
+    secure_sign_server::{SecureSign, SecureSignServer},
+    *,
+};
 use tonic::async_trait;
+
+pub fn bounded_secure_sign_server<T: SecureSign>(service: T) -> SecureSignServer<T> {
+    SecureSignServer::new(service)
+        .max_decoding_message_size(MAX_RPC_MESSAGE_BYTES)
+        .max_encoding_message_size(MAX_RPC_MESSAGE_BYTES)
+}
+
+pub fn bounded_secure_sign_server_from_arc<T: SecureSign>(
+    service: std::sync::Arc<T>,
+) -> SecureSignServer<T> {
+    SecureSignServer::from_arc(service)
+        .max_decoding_message_size(MAX_RPC_MESSAGE_BYTES)
+        .max_encoding_message_size(MAX_RPC_MESSAGE_BYTES)
+}
 
 pub trait IntoRpcStatus {
     fn into_rpc_status(self) -> tonic::Status;
@@ -122,6 +143,8 @@ impl SecureSign for DefaultSignService {
         req: tonic::Request<SignExtensiblePayloadRequest>,
     ) -> Result<tonic::Response<SignExtensiblePayloadResponse>, tonic::Status> {
         let req = req.into_inner();
+        validate_extensible_request(req.payload.as_ref(), &req.script_hashes)
+            .map_err(|err| tonic::Status::invalid_argument(err.to_string()))?;
         let script_hashes = to_h160_vec(req.script_hashes)?;
         let Some(payload) = req.payload.as_ref() else {
             return Err(tonic::Status::invalid_argument("payload is required"));
@@ -144,6 +167,10 @@ impl SecureSign for DefaultSignService {
         req: tonic::Request<SignBlockRequest>,
     ) -> Result<tonic::Response<SignBlockResponse>, tonic::Status> {
         let req = req.into_inner();
+        validate_public_key(&req.public_key)
+            .map_err(|err| tonic::Status::invalid_argument(err.to_string()))?;
+        validate_trimmed_block(req.block.as_ref())
+            .map_err(|err| tonic::Status::invalid_argument(err.to_string()))?;
         let Some(block) = req.block.as_ref() else {
             return Err(tonic::Status::invalid_argument("block is required"));
         };
@@ -165,6 +192,8 @@ impl SecureSign for DefaultSignService {
         req: tonic::Request<GetAccountStatusRequest>,
     ) -> Result<tonic::Response<GetAccountStatusResponse>, tonic::Status> {
         let req = req.into_inner();
+        validate_public_key(&req.public_key)
+            .map_err(|err| tonic::Status::invalid_argument(err.to_string()))?;
         self.signer
             .get_account_status(&req.public_key)
             .map(|x| GetAccountStatusResponse { status: x as i32 })
@@ -177,6 +206,10 @@ impl SecureSign for DefaultSignService {
         req: tonic::Request<SignTransactionRequest>,
     ) -> Result<tonic::Response<SignTransactionResponse>, tonic::Status> {
         let req = req.into_inner();
+        validate_public_key(&req.public_key)
+            .map_err(|err| tonic::Status::invalid_argument(err.to_string()))?;
+        validate_raw_tx(&req.raw_tx)
+            .map_err(|err| tonic::Status::invalid_argument(err.to_string()))?;
         // Enclave re-validates pure byte/policy invariants (incl. deploy-time destination allowlist).
         // Chain-state dual-RPC binding is enforced on the gateway when enabled.
         let validated = self

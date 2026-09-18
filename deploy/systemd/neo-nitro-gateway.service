@@ -11,6 +11,9 @@ Type=simple
 User=neo-signer
 Group=neo-signer
 EnvironmentFile=/etc/neo-signer/signer.env
+# 0400 credential file; run-gateway.sh maps this to GATEWAY_WORKLOAD_IDENTITIES_FILE.
+# Do not put the identity table on ExecStart.
+LoadCredential=workload-identities:/etc/neo-signer/workload-identities
 ExecStart=/opt/neo-signer/bin/run-gateway.sh
 Restart=on-failure
 RestartSec=5

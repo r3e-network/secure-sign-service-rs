@@ -9,6 +9,10 @@ policies to trusted clients.
 Current release: **v0.2.0**. See [CHANGELOG.md](CHANGELOG.md) for release notes
 and [docs/RELEASE.md](docs/RELEASE.md) for the reproducible release procedure.
 
+Local deadline, journal and recovery changes are documented in
+[the 2026-09-08 remediation runbook](docs/ARCHITECTURE-REMEDIATION-2026-09-08.md).
+Raw and economic signing still default to disabled.
+
 ### Deployment Modes
 - **Mock Mode**: For development and testing purposes
 - **SGX Mode**: For Intel SGX enclave deployment with hardware security
@@ -192,6 +196,9 @@ Keep the enclave startup service private to the parent instance. Expose only
 the `SecureSign` service through the gateway on a dedicated WireGuard address:
 
 ```bash
+# Put id:role:hex-token entries in the environment or a 0600 secret file.
+# Do not pass tokens on argv. This is a shared-secret policy, not mTLS.
+export GATEWAY_WORKLOAD_IDENTITIES_FILE=/run/credentials/neo-nitro-gateway.service/identities
 make gateway
 ./target/secure-sign-gateway \
     --listen 10.78.0.1:9991 \
@@ -203,10 +210,24 @@ make gateway
     --legacy-journal /var/lib/neo-signer/anti-equivocation.log
 ```
 
-The gateway accepts one request at a time, enforces the configured network and
-public key, and durably rejects conflicting prepare/commit or block signatures
-for the same consensus slot. Change-view and recovery messages remain retryable
-because their payloads can legitimately evolve within a view.
+The gateway binds only the WireGuard parent unless `--allow-bind-cidr` is set.
+`0.0.0.0` / `::` / `0.0.0.0/0`, public or IPv6-global networks, and wide
+prefixes (`/1`, `/8`, IPv4 `< /16`, IPv6 `< /64`) also require
+`--allow-wildcard-bind` and an external firewall. Every RPC needs an
+application-layer workload token; WireGuard membership is not enough.
+`SignExtensiblePayload` stays off unless `ENABLE_RAW_PAYLOAD_SIGNING` is set
+for a controlled migration. Consensus signing takes one in-flight permit
+only after identity, size, MAC, and dBFT schema checks. `GetAccountStatus`
+has a separate cap of 4 in-flight vsock calls. The gateway enforces the
+configured network and the pinned public key, and durably rejects
+conflicting signatures for every consensus message type, including
+ChangeView and Recovery. Raw-payload callers must send a v1 request MAC
+whose digest is `SHA-256` of the 36-byte Neo N3 exact signed bytes;
+identical nonce+digest retries return a cached signature after commit. See
+[docs/WORKLOAD-REQUEST-AUTH.md](docs/WORKLOAD-REQUEST-AUTH.md)
+and `secure-sign-core/testdata/workload-request-auth-v1.json`. Production
+systemd must set identities through env, a `0600` file, or a credential fd
+via `deploy/run-gateway.sh` — never argv.
 
 The disk-backed journal uses a 16 MiB page cache, so historical growth does not
 increase gateway RSS. On first start it migrates the legacy text journal in
@@ -330,6 +351,17 @@ Service definitions are located in:
 - `secure-sign-rpc/proto/servicepb.proto`
 - `secure-sign-rpc/proto/startpb.proto`
 
+`secure-sign-rpc/src/servicepb.rs` and `startpb.rs` are committed output of
+`secure-sign-rpc/build.rs`. The locked generators are `tonic-build` 0.12.3 and
+`prost-build` 0.13.5. They format with `prettyplease`, which does not match
+`rustfmt`. The same rustfmt diff is present on HEAD; do not hand-edit those
+files to pass `cargo fmt --check`.
+
+The source format gate is `./scripts/check-format.sh`. It rustfmt-checks every
+tracked hand-written Rust file, excludes the two generated RPC sources, and
+re-runs the locked generator to prove the committed files still match. A
+`rustfmt.toml` ignore list keeps `cargo fmt` from rewriting generator output.
+
 ## Project Structure
 ```
 neo-signer-rs/
@@ -377,6 +409,11 @@ cargo audit --file secure-sign-sgx/Cargo.lock --ignore RUSTSEC-2023-0071
 cargo audit --file secure-sign-sgx-enclave/Cargo.lock --ignore RUSTSEC-2023-0071
 make linux-arm64
 ```
+
+`./scripts/check-format.sh` is the format gate, not `cargo fmt --check`. The
+latter fails on HEAD because `tonic-build` writes `prettyplease` output into
+`servicepb.rs` / `startpb.rs`. The script still rustfmt-checks every
+hand-written Rust file and adds a locked generation-consistency check.
 
 The RSA advisory exception is limited to the documented ephemeral key-generation
 path; Rust `rsa` decrypt/sign padding APIs are not used. Release artifacts must

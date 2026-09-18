@@ -1,0 +1,47 @@
+{
+  "schema": "neoos.signer-remediation.v1",
+  "baseline_head": "3b71a43ba53757a0ae5f29e0314f2ab181bad977",
+  "branch": "codex/architecture-remediation-20260908",
+  "findings": {
+    "L-06": "locally verified",
+    "L-07": "locally verified",
+    "L-08": "locally verified"
+  },
+  "validation": {
+    "workspace_tests": {
+      "passed": 111,
+      "failed": 0,
+      "preexisting_ignored": 1
+    },
+    "ignored_nep2_test_run_separately": {
+      "passed": 1,
+      "failed": 0
+    },
+    "gateway_tests": {
+      "passed": 42,
+      "failed": 0
+    },
+    "clippy": "workspace all-targets -D warnings passed",
+    "format_and_generated": "passed"
+  },
+  "production_enclave_changed": false,
+  "deployed": false,
+  "feature_defaults_changed": false,
+  "source_sha256": {
+    "secure-sign-gateway/src/main.rs": "9d2fbd5a317798a0040265827af5d85bf5a21121a65a4e11a8a6c3ef9c8db34d",
+    "secure-sign-gateway/src/budget.rs": "e44c7f32112b538081f1f3604af67ff08eab58cedc13ae4d7e55ad1fee4f1605",
+    "secure-sign-gateway/src/journal_worker.rs": "adbd324063f9a0daec32313c8257bdd4ba07ae1f247b7c8653f9d86ba3def699",
+    "secure-sign-gateway/src/remediation_tests.rs": "4150f50c3fe9b3fdead7c0801ac985df8085d656983c567fcc3fcf542bee4d00",
+    "secure-sign-gateway/Cargo.toml": "a7c19721baa8447508b4596dea33eaae233339902c43d134ff8d269b7409e04b",
+    "Cargo.lock": "fe5ff9a952853a79279acd2eff29f52fa8f2d0ddb42d85d5766ee2bc9ead8a73"
+  },
+  "logs": [
+    "workspace-tests.log",
+    "clippy.log",
+    "format.log",
+    "journal-benchmark.log",
+    "nep2-slow-test.log",
+    "red-expired-reservation.log",
+    "red-cached-response.log"
+  ]
+}

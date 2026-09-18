@@ -1,0 +1,31 @@
+{
+  "spec": "secure-sign-service-rs workload request auth v1. Protocol authority is this Signer repository. Go callers must reproduce every hex field byte-for-byte. Isolated CI loads this file from CARGO_MANIFEST_DIR/testdata/workload-request-auth-v1.json.",
+  "algorithm": {
+    "unsigned_bytes": "Neo N3 extensible serialization: VarInt(len(category)) || category || u32le(valid_block_start) || u32le(valid_block_end) || sender20 || VarInt(len(data)) || data. VarInt is Bitcoin/Neo compact size (one byte when length < 0xfd). sender is raw 20-byte little-endian H160 with no length prefix.",
+    "sign_data": "36 bytes = u32le(network) || SHA-256(unsigned_bytes). This is what ECDSA signs. Do not call this a 32-byte digest.",
+    "digest": "SHA-256(sign_data). 32 bytes. The transcript digest= field is lowercase hex of this value (64 hex chars).",
+    "canonical_transcript": "UTF-8, LF (0x0a) separators, no trailing newline: v1\\nmethod=/servicepb.SecureSign/SignExtensiblePayload\\nnetwork=<u32 decimal>\\nnonce=<lowercase hex>\\nnot_after=<unix decimal>\\ndigest=<lowercase hex SHA-256>\\nworkload_id=<id>\\nworkload_role=consensus",
+    "mac": "HMAC-SHA256(token_bytes, canonical_transcript_utf8), lowercase hex"
+  },
+  "token_hex": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "workload_id": "dBFT-node",
+  "workload_role": "consensus",
+  "method": "/servicepb.SecureSign/SignExtensiblePayload",
+  "network": 860833102,
+  "payload": {
+    "category": "dBFT",
+    "valid_block_start": 0,
+    "valid_block_end": 9,
+    "sender_hex": "1111111111111111111111111111111111111111",
+    "data_hex": "00090000000102"
+  },
+  "nonce_hex": "abababababababababababababababab",
+  "not_after": 1770000000,
+  "unsigned_bytes_hex": "0464424654000000000900000011111111111111111111111111111111111111110700090000000102",
+  "sign_data_hex": "4e454f3319fdc4e8f27be67302dcd3fab8dc27789cab0832f54396b04439d827171e6030",
+  "digest_hex": "fd201da95db93157197ac47659d272cce51953be15237f612d1a3d714f34e05b",
+  "canonical_transcript": "v1\nmethod=/servicepb.SecureSign/SignExtensiblePayload\nnetwork=860833102\nnonce=abababababababababababababababab\nnot_after=1770000000\ndigest=fd201da95db93157197ac47659d272cce51953be15237f612d1a3d714f34e05b\nworkload_id=dBFT-node\nworkload_role=consensus",
+  "mac_hex": "3b04f1f5d2443c76acb1a64cd24b032f241fd5ccc96c2f846ff73864b59f0412",
+  "incompatible_fura_length_prefix_digest_hex": "c3b67ad52d2a5cfbdf040b5f7818e1ad6c936cbe63c449fcbd2e2089e26b9206",
+  "incompatible_fura_note": "neo-os-fura neo3fura_neogo_patch/securesign/contract.go PayloadDigest hashes u64be(len)||category || u64be(len)||sender || u64be(len)||data and omits valid_block_start/valid_block_end. That digest is recorded only to prove incompatibility. Do not use it."
+}

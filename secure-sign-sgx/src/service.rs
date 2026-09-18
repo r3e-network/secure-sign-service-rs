@@ -5,6 +5,9 @@ use crate::enclave::SgxEnclave;
 use crate::sign::SgxSigner;
 use crate::startup::SgxStartup;
 
+use secure_sign_core::limits::{
+    validate_extensible_request, validate_public_key, validate_trimmed_block,
+};
 use secure_sign_rpc::servicepb::secure_sign_server::*;
 use secure_sign_rpc::servicepb::*;
 use secure_sign_rpc::startpb::startup_service_server::*;
@@ -36,6 +39,8 @@ impl SecureSign for SgxSignService {
         req: tonic::Request<SignExtensiblePayloadRequest>,
     ) -> Result<tonic::Response<SignExtensiblePayloadResponse>, tonic::Status> {
         let req = req.into_inner();
+        validate_extensible_request(req.payload.as_ref(), &req.script_hashes)
+            .map_err(|err| tonic::Status::invalid_argument(err.to_string()))?;
         let script_hashes = to_h160_vec(req.script_hashes)?;
         let Some(payload) = req.payload.as_ref() else {
             return Err(tonic::Status::invalid_argument("payload is required"));
@@ -53,6 +58,10 @@ impl SecureSign for SgxSignService {
         req: tonic::Request<SignBlockRequest>,
     ) -> Result<tonic::Response<SignBlockResponse>, tonic::Status> {
         let req = req.into_inner();
+        validate_public_key(&req.public_key)
+            .map_err(|err| tonic::Status::invalid_argument(err.to_string()))?;
+        validate_trimmed_block(req.block.as_ref())
+            .map_err(|err| tonic::Status::invalid_argument(err.to_string()))?;
         let Some(block) = req.block.as_ref() else {
             return Err(tonic::Status::invalid_argument("block is required"));
         };
@@ -69,6 +78,8 @@ impl SecureSign for SgxSignService {
         req: tonic::Request<GetAccountStatusRequest>,
     ) -> Result<tonic::Response<GetAccountStatusResponse>, tonic::Status> {
         let req = req.into_inner();
+        validate_public_key(&req.public_key)
+            .map_err(|err| tonic::Status::invalid_argument(err.to_string()))?;
         self.signer
             .get_account_status(&req.public_key)
             .map(|x| GetAccountStatusResponse { status: x as i32 })

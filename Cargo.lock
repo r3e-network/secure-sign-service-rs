@@ -2145,6 +2145,7 @@ dependencies = [
  "chrono",
  "clap",
  "hex",
+ "prost",
  "redb",
  "secure-sign-core",
  "secure-sign-neo-rpc",
@@ -2152,6 +2153,7 @@ dependencies = [
  "sha2 0.10.8",
  "tempfile",
  "tokio",
+ "tokio-stream",
  "tonic",
 ]
 

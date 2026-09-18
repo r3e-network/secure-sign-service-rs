@@ -3,7 +3,16 @@ set -euo pipefail
 
 : "${SIGNER_PUBLIC_KEY:?SIGNER_PUBLIC_KEY is required}"
 
-exec /opt/neo-signer/bin/secure-sign-gateway \
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/workload-identities.sh
+. "$ROOT_DIR/lib/workload-identities.sh"
+
+require_gateway_identities
+
+GATEWAY_BIN="${GATEWAY_BIN:-/opt/neo-signer/bin/secure-sign-gateway}"
+
+# Identities come from env, a 0600 file, or a credential fd — never argv.
+exec "$GATEWAY_BIN" \
   --listen "${SIGNER_LISTEN:-10.78.0.1:9991}" \
   --enclave-cid "${SIGNER_CID:-2345}" \
   --enclave-port "${SIGNER_SERVICE_PORT:-9991}" \

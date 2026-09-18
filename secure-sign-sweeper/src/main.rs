@@ -6,6 +6,7 @@ use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
 use std::net::IpAddr;
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+use std::os::unix::io::FromRawFd;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -30,12 +31,16 @@ use secure_sign_core::neo::tx::{
 };
 use secure_sign_core::neo::ToSignData;
 use secure_sign_core::random::{CryptRandom, EnvCryptRandom};
+use secure_sign_core::workload::{
+    WorkloadRole, WORKLOAD_ID_HEADER, WORKLOAD_ROLE_HEADER, WORKLOAD_TOKEN_HEADER,
+};
 use secure_sign_neo_rpc::{transaction_with_signature, DualRpcVerifier};
 use secure_sign_rpc::servicepb::secure_sign_client::SecureSignClient;
 use secure_sign_rpc::servicepb::SignTransactionRequest;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tonic::transport::Endpoint;
+use tonic::Request;
 use url::Url;
 
 const PLAN_VERSION: u32 = 1;
@@ -96,6 +101,23 @@ struct Args {
     /// Required to sign and broadcast. Without this flag the command is a dry run.
     #[arg(long, default_value_t = false)]
     broadcast: bool,
+
+    #[arg(long, env = "GATEWAY_WORKLOAD_ID")]
+    workload_id: Option<String>,
+
+    #[arg(long, default_value = "economic", env = "GATEWAY_WORKLOAD_ROLE")]
+    workload_role: String,
+
+    /// Secret file or mount containing the hex token. Do not pass tokens on argv.
+    #[arg(long, env = "GATEWAY_WORKLOAD_TOKEN_FILE")]
+    workload_token_file: Option<PathBuf>,
+
+    /// File descriptor containing the hex token.
+    #[arg(long, env = "GATEWAY_WORKLOAD_TOKEN_FD")]
+    workload_token_fd: Option<i32>,
+
+    #[arg(skip)]
+    workload_token: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -171,7 +193,10 @@ struct CommandResult<'a> {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    let args = Args::parse();
+    let mut args = Args::parse();
+    if args.broadcast && args.workload_token.is_none() {
+        args.workload_token = Some(load_workload_token(&args)?);
+    }
     validate_args(&args)?;
     let _lock = ProcessLock::acquire(&args.state_path)?;
 
@@ -201,9 +226,25 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 )
             {
                 let log = verifier.application_log(&existing.transaction_hash).await?;
-                confirm_plan_from_log(&mut existing, log.as_ref())?;
+                if confirm_plan_from_log(&mut existing, log.as_ref())? {
+                    existing
+                } else if is_unbroadcast_plan(&existing) {
+                    let raw = BASE64.decode(existing.unsigned_tx_base64.as_bytes())?;
+                    let old_tx = decode_unsigned_transaction(&raw)?;
+                    let chain = verifier.read_chain_state(&source).await?;
+                    if chain.max_height >= old_tx.valid_until_block {
+                        existing.status = PlanStatus::Expired;
+                        save_plan(&args.state_path, &existing)?;
+                        build_plan(&args, &verifier, &public_key, &day).await?
+                    } else {
+                        existing
+                    }
+                } else {
+                    existing
+                }
+            } else {
+                existing
             }
-            existing
         }
         Some(existing)
             if matches!(
@@ -312,16 +353,108 @@ fn validate_args(args: &Args) -> Result<(), Box<dyn Error>> {
         return Err("valid-for-blocks must exceed height skew and fit the gateway window".into());
     }
     validate_private_gateway_endpoint(&args.gateway_endpoint)?;
+    if args.broadcast {
+        validate_workload_identity(args)?;
+    }
     Ok(())
 }
 
+fn load_workload_token(args: &Args) -> Result<String, Box<dyn Error>> {
+    let env_value = std::env::var("GATEWAY_WORKLOAD_TOKEN").ok();
+    let sources = u8::from(args.workload_token_fd.is_some())
+        + u8::from(args.workload_token_file.is_some())
+        + u8::from(
+            env_value
+                .as_deref()
+                .is_some_and(|value| !value.trim().is_empty()),
+        );
+    if sources != 1 {
+        return Err(
+            "exactly one of GATEWAY_WORKLOAD_TOKEN, GATEWAY_WORKLOAD_TOKEN_FILE, or GATEWAY_WORKLOAD_TOKEN_FD is required"
+                .into(),
+        );
+    }
+    if let Some(fd) = args.workload_token_fd {
+        if fd < 3 {
+            return Err("workload token file descriptor must be >= 3".into());
+        }
+        let mut file = unsafe { File::from_raw_fd(fd) };
+        let mut text = String::new();
+        file.read_to_string(&mut text)?;
+        core::mem::forget(file);
+        let trimmed = text.trim();
+        if trimmed.is_empty() {
+            return Err("workload token file descriptor is empty".into());
+        }
+        return Ok(trimmed.to_owned());
+    }
+    if let Some(path) = args.workload_token_file.as_deref() {
+        let metadata = fs::metadata(path)?;
+        if metadata.permissions().mode() & 0o077 != 0 {
+            return Err("workload token file must not be group or world accessible".into());
+        }
+        let text = fs::read_to_string(path)?;
+        let trimmed = text.trim();
+        if trimmed.is_empty() {
+            return Err("workload token file is empty".into());
+        }
+        return Ok(trimmed.to_owned());
+    }
+    Ok(env_value.unwrap_or_default().trim().to_owned())
+}
+
+fn validate_workload_identity(args: &Args) -> Result<(), Box<dyn Error>> {
+    let id = args
+        .workload_id
+        .as_deref()
+        .filter(|value| !value.is_empty())
+        .ok_or("GATEWAY_WORKLOAD_ID is required to call the signer")?;
+    let token = args
+        .workload_token
+        .as_deref()
+        .filter(|value| !value.is_empty())
+        .ok_or("GATEWAY_WORKLOAD_TOKEN is required to call the signer")?;
+    WorkloadRole::parse(&args.workload_role)?;
+    let decoded = hex::decode(token).map_err(|_| "workload token must be hex")?;
+    if decoded.len() < 32 {
+        return Err("workload token must be at least 32 bytes".into());
+    }
+    if id.len() > 64 {
+        return Err("workload id is too long".into());
+    }
+    Ok(())
+}
+
+fn attach_workload_identity<T>(
+    mut request: Request<T>,
+    args: &Args,
+) -> Result<Request<T>, Box<dyn Error>> {
+    validate_workload_identity(args)?;
+    let role = WorkloadRole::parse(&args.workload_role)?;
+    let metadata = request.metadata_mut();
+    metadata.insert(
+        WORKLOAD_ID_HEADER,
+        args.workload_id.as_deref().unwrap().parse()?,
+    );
+    metadata.insert(WORKLOAD_ROLE_HEADER, role.as_str().parse()?);
+    metadata.insert(
+        WORKLOAD_TOKEN_HEADER,
+        args.workload_token.as_deref().unwrap().parse()?,
+    );
+    Ok(request)
+}
+
 fn validate_private_gateway_endpoint(raw: &str) -> Result<(), Box<dyn Error>> {
-    let endpoint = Url::parse(raw)?;
+    let endpoint = Url::parse(raw).map_err(|_| "signer gateway URL is invalid")?;
     if endpoint.scheme() != "http" {
         return Err("signer gateway must use private-network HTTP".into());
     }
-    if !endpoint.username().is_empty() || endpoint.password().is_some() {
-        return Err("signer gateway URL must not contain credentials".into());
+    if !endpoint.username().is_empty()
+        || endpoint.password().is_some()
+        || endpoint.query().is_some()
+        || endpoint.fragment().is_some()
+    {
+        return Err("signer gateway URL must not contain credentials, query, or fragment".into());
     }
     let host = endpoint
         .host_str()
@@ -465,6 +598,12 @@ fn no_op_plan(
     }
 }
 
+fn is_unbroadcast_plan(plan: &SweepPlan) -> bool {
+    plan.status == PlanStatus::Planned
+        && plan.signature_base64.is_none()
+        && plan.broadcast_hash.is_none()
+}
+
 async fn request_signature(
     args: &Args,
     plan: &SweepPlan,
@@ -475,8 +614,8 @@ async fn request_signature(
         .timeout(Duration::from_millis(args.gateway_timeout_ms));
     let channel = endpoint.connect().await?;
     let mut client = SecureSignClient::new(channel);
-    let response = client
-        .sign_transaction(SignTransactionRequest {
+    let request = attach_workload_identity(
+        Request::new(SignTransactionRequest {
             raw_tx: BASE64.decode(plan.unsigned_tx_base64.as_bytes())?,
             public_key: public_key.to_vec(),
             network: args.network,
@@ -484,9 +623,10 @@ async fn request_signature(
             client_dry_run_id: format!("daily/{}", plan.day),
             expected_amount: plan.expected_amount,
             expected_fee_total: plan.expected_fee_total,
-        })
-        .await?
-        .into_inner();
+        }),
+        args,
+    )?;
+    let response = client.sign_transaction(request).await?.into_inner();
     if response.signature.len() != ECC256_SIGN_SIZE {
         return Err("signer returned an invalid signature length".into());
     }
@@ -717,6 +857,24 @@ mod tests {
         }
     }
 
+    #[test]
+    fn only_unsigned_unbroadcast_plans_can_be_replaced_after_expiry() {
+        let mut planned = pending_plan(PlanStatus::Planned);
+        planned.signature_base64 = None;
+        assert!(is_unbroadcast_plan(&planned));
+
+        let mut signed = pending_plan(PlanStatus::Planned);
+        signed.signature_base64 = Some("signature".to_owned());
+        assert!(!is_unbroadcast_plan(&signed));
+
+        let mut broadcast = pending_plan(PlanStatus::Planned);
+        broadcast.broadcast_hash = Some("0xhash".to_owned());
+        assert!(!is_unbroadcast_plan(&broadcast));
+
+        let confirmed = pending_plan(PlanStatus::Confirmed);
+        assert!(!is_unbroadcast_plan(&confirmed));
+    }
+
     fn successful_log(plan: &SweepPlan) -> Value {
         json!({
             "txid": plan.transaction_hash,
@@ -808,6 +966,48 @@ mod tests {
         assert!(validate_private_gateway_endpoint("http://127.0.0.1:9991").is_ok());
         assert!(validate_private_gateway_endpoint("https://10.78.0.1:9991").is_err());
         assert!(validate_private_gateway_endpoint("http://203.0.113.10:9991").is_err());
+        let query = validate_private_gateway_endpoint("http://10.78.0.1:9991?token=super-secret")
+            .unwrap_err()
+            .to_string();
+        assert!(!query.contains("super-secret"), "{query}");
+        assert!(query.contains("query"));
+    }
+
+    fn sample_args() -> Args {
+        Args {
+            rpc_urls: "https://rpc-a.example,https://rpc-b.example".to_owned(),
+            public_key: "02".repeat(33),
+            destination: "Ndummy".to_owned(),
+            gateway_endpoint: "http://10.78.0.1:9991".to_owned(),
+            network: GAS_SWEEP_NETWORK_MAGIC,
+            reserve: ONE_GAS_FRACTIONS,
+            valid_for_blocks: 90,
+            max_height_skew: 10,
+            max_valid_until_delta: 120,
+            rpc_timeout_ms: 4_000,
+            gateway_timeout_ms: 2_000,
+            confirmation_timeout_seconds: 120,
+            state_path: PathBuf::from("/tmp/gas-sweep-plan.json"),
+            broadcast: true,
+            workload_id: None,
+            workload_role: "economic".to_owned(),
+            workload_token_file: None,
+            workload_token_fd: None,
+            workload_token: None,
+        }
+    }
+
+    #[test]
+    fn broadcast_requires_an_economic_workload_identity() {
+        let mut args = sample_args();
+        assert!(validate_workload_identity(&args).is_err());
+        args.workload_id = Some("gas-sweeper".to_owned());
+        args.workload_token = Some("aa".repeat(32));
+        assert!(validate_workload_identity(&args).is_ok());
+        args.workload_role = "consensus".to_owned();
+        assert!(WorkloadRole::parse(&args.workload_role).is_ok());
+        args.workload_role = "observer".to_owned();
+        assert!(validate_workload_identity(&args).is_err());
     }
 
     #[test]

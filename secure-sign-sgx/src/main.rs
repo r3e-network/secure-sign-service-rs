@@ -15,7 +15,6 @@ use std::sync::Arc;
 use crate::enclave::SgxEnclave;
 use crate::service::SgxSignService;
 
-use secure_sign_rpc::servicepb::secure_sign_server::SecureSignServer;
 use secure_sign_rpc::startpb::startup_service_server::StartupServiceServer;
 
 use clap::{command, Parser, Subcommand};
@@ -59,7 +58,9 @@ impl RunCmd {
             let r = Server::builder()
                 .accept_http1(true)
                 .add_service(StartupServiceServer::from_arc(service.clone()))
-                .add_service(SecureSignServer::from_arc(service))
+                .add_service(secure_sign_rpc::bounded_secure_sign_server_from_arc(
+                    service,
+                ))
                 .serve_with_shutdown(addr, async { rx.await.unwrap_or(()) })
                 .await;
             if let Err(err) = r {

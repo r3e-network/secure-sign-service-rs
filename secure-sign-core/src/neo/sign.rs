@@ -280,10 +280,7 @@ impl Signer {
         Ok((signature, tx_hash))
     }
 
-    pub fn extensible_sign_data(
-        payload: &ExtensiblePayload,
-        network: u32,
-    ) -> Result<[u8; SIGN_DATA_SIZE], SignError> {
+    pub fn extensible_unsigned_bytes(payload: &ExtensiblePayload) -> Result<Vec<u8>, SignError> {
         let mut buf = BytesMut::with_capacity(512);
         payload.category.as_bytes().encode_bin(&mut buf);
         payload.valid_block_start.encode_bin(&mut buf);
@@ -294,8 +291,21 @@ impl Signer {
         }
         H160::from_le_bytes(payload.sender.as_slice().to_array()).encode_bin(&mut buf);
         payload.data.as_slice().encode_bin(&mut buf);
+        Ok(buf.to_vec())
+    }
 
-        Ok(buf.to_sign_data(network))
+    pub fn extensible_sign_data(
+        payload: &ExtensiblePayload,
+        network: u32,
+    ) -> Result<[u8; SIGN_DATA_SIZE], SignError> {
+        Ok(Self::extensible_unsigned_bytes(payload)?.to_sign_data(network))
+    }
+
+    pub fn extensible_request_digest(
+        payload: &ExtensiblePayload,
+        network: u32,
+    ) -> Result<[u8; 32], SignError> {
+        Ok(Self::extensible_sign_data(payload, network)?.sha256())
     }
 }
 

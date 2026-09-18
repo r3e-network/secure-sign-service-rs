@@ -12,7 +12,6 @@ use std::os::unix::fs::OpenOptionsExt;
 use std::string::String;
 
 use secure_sign_core::neo::sign::{Account, Signer};
-use secure_sign_rpc::servicepb::secure_sign_server::SecureSignServer;
 #[cfg(feature = "vsock")]
 use secure_sign_rpc::startup::RecipientProvider;
 use secure_sign_rpc::startup::StartSigner;
@@ -123,7 +122,7 @@ impl StartSigner for DefaultStartSigner {
         .with_gas_sweep_policy(gas_sweep_policy);
         let router = Server::builder()
             .accept_http1(true)
-            .add_service(SecureSignServer::new(sign_service));
+            .add_service(secure_sign_rpc::bounded_secure_sign_server(sign_service));
 
         let (tx, rx) = oneshot::channel::<()>();
         if self.cid > 0 {

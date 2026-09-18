@@ -3,8 +3,11 @@
 
 //! Independent Neo N3 RPC agreement checks for the economic signing path.
 
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::sync::Arc;
 use std::time::Duration;
+
+mod endpoint;
+pub use endpoint::{HostResolver, SystemHostResolver};
 
 use base64::engine::general_purpose::STANDARD as BASE64;
 use base64::Engine;
@@ -31,6 +34,12 @@ pub enum RpcVerificationError {
 
     #[error("RPC endpoints must use different hosts")]
     HostsNotIndependent,
+
+    #[error("RPC endpoints must resolve to disjoint public address sets")]
+    ResolutionsNotIndependent,
+
+    #[error("RPC DNS resolution failed for {host}: {reason}")]
+    DnsResolution { host: String, reason: String },
 
     #[error("RPC endpoint is not allowed: {0}")]
     EndpointNotAllowed(String),
@@ -83,10 +92,10 @@ pub enum RpcVerificationError {
 }
 
 #[derive(Clone, Debug)]
-struct NeoRpcClient {
-    endpoint: Url,
-    label: String,
-    client: Client,
+pub(crate) struct NeoRpcClient {
+    pub(crate) endpoint: Url,
+    pub(crate) label: String,
+    pub(crate) client: Client,
 }
 
 #[derive(Clone, Debug)]
@@ -130,33 +139,24 @@ impl DualRpcVerifier {
         max_height_skew: u32,
         max_valid_until_delta: u32,
     ) -> Result<Self, RpcVerificationError> {
-        let urls: Vec<_> = endpoints
-            .split(',')
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .collect();
-        if urls.len() != 2 {
-            return Err(RpcVerificationError::EndpointCount);
-        }
+        Self::from_csv_with_resolver(
+            endpoints,
+            timeout,
+            max_height_skew,
+            max_valid_until_delta,
+            Arc::new(SystemHostResolver),
+        )
+    }
 
-        let client = Client::builder()
-            .connect_timeout(timeout)
-            .timeout(timeout)
-            .redirect(reqwest::redirect::Policy::none())
-            .user_agent("neo-os-secure-signer/1")
-            .build()
-            .map_err(|err| RpcVerificationError::InvalidEndpoint(clean_reason(&err)))?;
-
-        let first = parse_endpoint(urls[0], client.clone())?;
-        let second = parse_endpoint(urls[1], client)?;
-        if first.endpoint.host_str().map(str::to_ascii_lowercase)
-            == second.endpoint.host_str().map(str::to_ascii_lowercase)
-        {
-            return Err(RpcVerificationError::HostsNotIndependent);
-        }
-
+    pub fn from_csv_with_resolver(
+        endpoints: &str,
+        timeout: Duration,
+        max_height_skew: u32,
+        max_valid_until_delta: u32,
+        resolver: Arc<dyn HostResolver>,
+    ) -> Result<Self, RpcVerificationError> {
         Ok(Self {
-            endpoints: [first, second],
+            endpoints: endpoint::build_clients(endpoints, timeout, resolver)?,
             max_height_skew,
             max_valid_until_delta,
         })
@@ -483,70 +483,6 @@ fn compare_snapshots(
     })
 }
 
-fn parse_endpoint(raw: &str, client: Client) -> Result<NeoRpcClient, RpcVerificationError> {
-    let endpoint =
-        Url::parse(raw).map_err(|err| RpcVerificationError::InvalidEndpoint(clean_reason(&err)))?;
-    if endpoint.scheme() != "https" {
-        return Err(RpcVerificationError::HttpsRequired);
-    }
-    if !endpoint.username().is_empty()
-        || endpoint.password().is_some()
-        || endpoint.fragment().is_some()
-    {
-        return Err(RpcVerificationError::EndpointNotAllowed(
-            "credentials and fragments are forbidden".to_owned(),
-        ));
-    }
-    let host = endpoint
-        .host_str()
-        .ok_or_else(|| RpcVerificationError::InvalidEndpoint("missing host".to_owned()))?;
-    validate_public_host(host)?;
-    Ok(NeoRpcClient {
-        label: host.to_owned(),
-        endpoint,
-        client,
-    })
-}
-
-fn validate_public_host(host: &str) -> Result<(), RpcVerificationError> {
-    let lower = host.to_ascii_lowercase();
-    if lower == "localhost" || lower.ends_with(".localhost") || lower.ends_with(".local") {
-        return Err(RpcVerificationError::EndpointNotAllowed(
-            "local hosts are forbidden".to_owned(),
-        ));
-    }
-    if let Ok(ip) = lower.parse::<IpAddr>() {
-        let allowed = match ip {
-            IpAddr::V4(value) => is_public_ipv4(value),
-            IpAddr::V6(value) => is_public_ipv6(value),
-        };
-        if !allowed {
-            return Err(RpcVerificationError::EndpointNotAllowed(
-                "private or special-use IP address".to_owned(),
-            ));
-        }
-    }
-    Ok(())
-}
-
-fn is_public_ipv4(value: Ipv4Addr) -> bool {
-    !(value.is_private()
-        || value.is_loopback()
-        || value.is_link_local()
-        || value.is_broadcast()
-        || value.is_unspecified()
-        || value.is_documentation()
-        || value.octets()[0] == 0
-        || value.octets()[0] >= 224)
-}
-
-fn is_public_ipv6(value: Ipv6Addr) -> bool {
-    !(value.is_loopback()
-        || value.is_unspecified()
-        || value.is_unique_local()
-        || value.is_unicast_link_local())
-}
-
 fn ordered(first: u32, second: u32) -> (u32, u32) {
     if first <= second {
         (first, second)
@@ -642,8 +578,53 @@ fn is_duplicate_broadcast(reason: &str) -> bool {
         || lower.contains("already known")
 }
 
-fn clean_reason(reason: &impl std::fmt::Display) -> String {
-    reason.to_string().chars().take(160).collect()
+pub(crate) fn clean_reason(reason: &impl std::fmt::Display) -> String {
+    redact_url_secrets(&reason.to_string())
+        .chars()
+        .take(160)
+        .collect()
+}
+
+pub(crate) fn redact_url_secrets(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == ':' && chars.peek() == Some(&'/') {
+            out.push(ch);
+            continue;
+        }
+        if ch == '/' && out.ends_with(':') && chars.peek() == Some(&'/') {
+            out.push(ch);
+            out.push(chars.next().unwrap());
+            let mut authority = String::new();
+            while let Some(&next) = chars.peek() {
+                if next == '/' || next == '?' || next == '#' || next.is_whitespace() {
+                    break;
+                }
+                authority.push(chars.next().unwrap());
+            }
+            if let Some(at) = authority.rfind('@') {
+                out.push_str("redacted@");
+                out.push_str(&authority[at + 1..]);
+            } else {
+                out.push_str(&authority);
+            }
+            continue;
+        }
+        if ch == '?' || ch == '#' {
+            out.push(ch);
+            out.push_str("redacted");
+            while let Some(&next) = chars.peek() {
+                if next.is_whitespace() || next == '?' || next == '#' {
+                    break;
+                }
+                chars.next();
+            }
+            continue;
+        }
+        out.push(ch);
+    }
+    out
 }
 
 #[cfg(test)]
@@ -651,6 +632,7 @@ mod tests {
     use super::*;
     use secure_sign_core::neo::gas_transfer_script::build_gas_transfer_script;
     use secure_sign_core::neo::tx::encode_unsigned_transaction;
+    use std::sync::Arc;
     use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
     use tokio::net::TcpListener;
 
@@ -787,30 +769,61 @@ mod tests {
         secure_sign_core::neo::tx::decode_unsigned_transaction(&raw).unwrap()
     }
 
+    fn public_ips(first: [u8; 4], second: [u8; 4]) -> Arc<dyn HostResolver> {
+        use std::collections::{BTreeSet, HashMap};
+        use std::net::{IpAddr, Ipv4Addr};
+
+        Arc::new(endpoint::MapResolver {
+            answers: HashMap::from([
+                (
+                    "rpc-a.example".to_owned(),
+                    BTreeSet::from([IpAddr::V4(Ipv4Addr::from(first))]),
+                ),
+                (
+                    "rpc-b.example".to_owned(),
+                    BTreeSet::from([IpAddr::V4(Ipv4Addr::from(second))]),
+                ),
+            ]),
+        })
+    }
+
+    fn verifier_from(
+        urls: &str,
+        resolver: Arc<dyn HostResolver>,
+    ) -> Result<DualRpcVerifier, RpcVerificationError> {
+        DualRpcVerifier::from_csv_with_resolver(urls, Duration::from_secs(1), 3, 100, resolver)
+    }
+
+    #[test]
+    fn clean_reason_redacts_userinfo_query_and_fragment() {
+        let rendered = clean_reason(
+            &"GET https://user:super-secret@rpc.example/path?api_key=super-secret#frag",
+        );
+        assert!(!rendered.contains("super-secret"), "{rendered}");
+        assert!(!rendered.contains("api_key=super-secret"), "{rendered}");
+        assert!(rendered.contains("redacted@rpc.example"), "{rendered}");
+        assert!(rendered.contains("?redacted"), "{rendered}");
+        assert!(rendered.contains("#redacted"), "{rendered}");
+    }
+
     #[test]
     fn endpoint_configuration_requires_independent_https_hosts() {
-        assert!(DualRpcVerifier::from_csv(
+        assert!(verifier_from(
             "https://rpc-a.example,https://rpc-b.example",
-            Duration::from_secs(1),
-            3,
-            100
+            public_ips([1, 1, 1, 1], [8, 8, 8, 8])
         )
         .is_ok());
         assert!(matches!(
-            DualRpcVerifier::from_csv(
+            verifier_from(
                 "http://rpc-a.example,https://rpc-b.example",
-                Duration::from_secs(1),
-                3,
-                100
+                public_ips([1, 1, 1, 1], [8, 8, 8, 8])
             ),
             Err(RpcVerificationError::HttpsRequired)
         ));
         assert!(matches!(
-            DualRpcVerifier::from_csv(
+            verifier_from(
                 "https://rpc-a.example/a,https://rpc-a.example/b",
-                Duration::from_secs(1),
-                3,
-                100
+                public_ips([1, 1, 1, 1], [8, 8, 8, 8])
             ),
             Err(RpcVerificationError::HostsNotIndependent)
         ));
@@ -821,6 +834,132 @@ mod tests {
             100
         )
         .is_err());
+    }
+
+    #[test]
+    fn overlapping_or_private_dns_answers_are_rejected() {
+        use std::collections::{BTreeSet, HashMap};
+        use std::net::{IpAddr, Ipv4Addr};
+
+        assert!(matches!(
+            verifier_from(
+                "https://rpc-a.example,https://rpc-b.example",
+                public_ips([1, 1, 1, 1], [1, 1, 1, 1])
+            ),
+            Err(RpcVerificationError::ResolutionsNotIndependent)
+        ));
+
+        let private_dns = Arc::new(endpoint::MapResolver {
+            answers: HashMap::from([
+                (
+                    "rpc-a.example".to_owned(),
+                    BTreeSet::from([IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1))]),
+                ),
+                (
+                    "rpc-b.example".to_owned(),
+                    BTreeSet::from([IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8))]),
+                ),
+            ]),
+        });
+        assert!(matches!(
+            verifier_from("https://rpc-a.example,https://rpc-b.example", private_dns),
+            Err(RpcVerificationError::EndpointNotAllowed(_))
+        ));
+    }
+
+    #[tokio::test]
+    async fn redirects_are_rejected_by_the_http_client() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let endpoint = Url::parse(&format!("http://{}", listener.local_addr().unwrap())).unwrap();
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let mut stream = BufReader::new(stream);
+            let mut line = String::new();
+            while stream.read_line(&mut line).await.unwrap() != 0 {
+                if line == "\r\n" {
+                    break;
+                }
+                line.clear();
+            }
+            stream
+                .write_all(b"HTTP/1.1 302 Found\r\nLocation: https://203.0.113.10/\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+                .await
+                .unwrap();
+        });
+        let client = NeoRpcClient {
+            endpoint,
+            label: "fixture".to_owned(),
+            client: Client::builder()
+                .no_proxy()
+                .redirect(reqwest::redirect::Policy::none())
+                .timeout(Duration::from_secs(2))
+                .build()
+                .unwrap(),
+        };
+        let err = client.call("getblockcount", json!([])).await.unwrap_err();
+        match err {
+            RpcVerificationError::Transport { reason, .. } => {
+                assert!(
+                    reason.contains("302") || reason.to_ascii_lowercase().contains("redirect"),
+                    "{reason}"
+                );
+            }
+            other => panic!("expected transport failure, got {other}"),
+        }
+        tokio::time::timeout(Duration::from_secs(3), server)
+            .await
+            .unwrap()
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn dns_rebinding_or_resolution_change_fails_closed() {
+        use std::collections::{BTreeSet, HashMap};
+        use std::net::{IpAddr, Ipv4Addr};
+
+        let resolver = Arc::new(endpoint::SequenceResolver {
+            answers: std::sync::Mutex::new(HashMap::from([
+                (
+                    "rpc-a.example".to_owned(),
+                    vec![
+                        BTreeSet::from([IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1))]),
+                        BTreeSet::from([IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1))]),
+                    ],
+                ),
+                (
+                    "rpc-b.example".to_owned(),
+                    vec![
+                        BTreeSet::from([IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8))]),
+                        BTreeSet::from([IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8))]),
+                    ],
+                ),
+            ])),
+        });
+        let verifier = verifier_from("https://rpc-a.example,https://rpc-b.example", resolver)
+            .expect("initial public pins must succeed");
+        let err = verifier.endpoints[0]
+            .call("getblockcount", json!([]))
+            .await
+            .unwrap_err();
+        let text = error_chain(&err);
+        assert!(
+            text.contains("not allowed")
+                || text.contains("non-public")
+                || text.contains("changed")
+                || text.contains("error sending request"),
+            "{text}"
+        );
+    }
+
+    fn error_chain(err: &dyn std::error::Error) -> String {
+        let mut text = err.to_string();
+        let mut current = err.source();
+        while let Some(source) = current {
+            text.push_str(" :: ");
+            text.push_str(&source.to_string());
+            current = source.source();
+        }
+        text
     }
 
     #[test]
