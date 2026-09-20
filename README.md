@@ -1,5 +1,17 @@
 # Neo Signer RS
 
+## Architecture authority
+
+Within NeoOS this service is the attested custody backend (`gateway-signer-custody-backend`):
+enclave and vault key custody, attestation sessions, and cryptographic primitives behind a
+narrow signing interface. It is not a platform signer policy authority: caller
+authorization, network binding, quotas, anti-equivocation, and the signing audit trail
+belong to `neo-os-services/workers/neo-signer`, which is its only platform consumer. The
+WireGuard-bound parent gateway enforces transport and attestation policy for this backend
+only; it does not decide which callers or keys may sign platform operations. The binding
+is declared in `neo-os-web/docs/workspace/neoos-target-architecture.v1.json` and checked
+by the architecture source-coverage gate.
+
 ## Overview
 Neo Signer RS is a fail-closed signing service for
 [Neo](https://github.com/neo-project). It keeps private-key operations inside a
