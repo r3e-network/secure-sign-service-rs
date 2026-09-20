@@ -4,6 +4,7 @@ mod bind;
 mod budget;
 mod identity;
 mod journal_worker;
+mod recovery_protocol;
 #[cfg(test)]
 mod remediation_tests;
 mod secret;
@@ -22,6 +23,7 @@ use chrono::{DateTime, FixedOffset, Utc};
 use clap::Parser;
 use journal_worker::JournalWorker;
 use prost::Message;
+use recovery_protocol::RecoveryOutcome;
 use redb::{Database, ReadableDatabase, ReadableTable, ReadableTableMetadata, TableDefinition};
 use secure_sign_core::ct::constant_time_eq;
 use secure_sign_core::h160::{H160, H160_SIZE};
@@ -254,22 +256,34 @@ fn transport_signing_status(error: Status, digest: &str) -> Status {
         error.code(),
         tonic::Code::DeadlineExceeded | tonic::Code::Unavailable | tonic::Code::Cancelled
     ) {
-        recovery_status("signing-outcome-unknown", digest)
+        recovery_status(RecoveryOutcome::Unknown, digest)
     } else {
         error
     }
 }
 
-fn recovery_status(outcome: &'static str, digest: &str) -> Status {
+fn recovery_status(outcome: RecoveryOutcome, digest: &str) -> Status {
     let mut status = Status::unavailable(
         "signing outcome requires recovery; retry the identical request digest",
     );
     status.metadata_mut().insert(
-        "x-signing-outcome",
-        outcome.parse().expect("static outcome"),
+        recovery_protocol::OUTCOME_HEADER,
+        outcome.wire().parse().expect("static outcome"),
+    );
+    status.metadata_mut().insert(
+        recovery_protocol::PROTOCOL_HEADER,
+        format!(
+            "{}/v{}",
+            recovery_protocol::PROTOCOL,
+            recovery_protocol::VERSION
+        )
+        .parse()
+        .expect("static protocol"),
     );
     if let Ok(value) = digest.parse() {
-        status.metadata_mut().insert("x-signing-digest", value);
+        status
+            .metadata_mut()
+            .insert(recovery_protocol::DIGEST_HEADER, value);
     }
     status
 }
@@ -1049,20 +1063,23 @@ impl Gateway {
             let mut pending = self
                 .recovery
                 .lock()
-                .map_err(|_| recovery_status("result-commit-pending", &claim.digest))?;
+                .map_err(|_| recovery_status(RecoveryOutcome::CommitPending, &claim.digest))?;
             if !pending.records.contains_key(&key)
                 && (pending.records.len() >= MAX_REPLAY_ENTRIES
                     || pending.bytes.saturating_add(key.len() + signature.len())
                         > MAX_RECOVERY_BYTES)
             {
-                return Err(recovery_status("result-commit-pending", &claim.digest));
+                return Err(recovery_status(
+                    RecoveryOutcome::CommitPending,
+                    &claim.digest,
+                ));
             }
             if pending
                 .records
                 .get(&key)
                 .is_some_and(|previous| previous != &signature)
             {
-                return Err(recovery_status("result-conflict", &claim.digest));
+                return Err(recovery_status(RecoveryOutcome::Conflict, &claim.digest));
             }
             if !pending.records.contains_key(&key) {
                 pending.bytes += key.len() + signature.len();
@@ -1096,7 +1113,10 @@ impl Gateway {
                 }
             }
         }
-        Err(recovery_status("result-commit-pending", &claim.digest))
+        Err(recovery_status(
+            RecoveryOutcome::CommitPending,
+            &claim.digest,
+        ))
     }
 
     fn status_permit(&self) -> Result<tokio::sync::OwnedSemaphorePermit, Status> {
@@ -1313,19 +1333,19 @@ impl SecureSign for Gateway {
             client.sign_extensible_payload(enclave_request),
         )
         .await
-        .map_err(|_| recovery_status("signing-outcome-unknown", &claim.digest))?
+        .map_err(|_| recovery_status(RecoveryOutcome::Unknown, &claim.digest))?
         .map_err(|error| {
             if matches!(
                 error.code(),
                 tonic::Code::DeadlineExceeded | tonic::Code::Unavailable | tonic::Code::Cancelled
             ) {
-                recovery_status("signing-outcome-unknown", &claim.digest)
+                recovery_status(RecoveryOutcome::Unknown, &claim.digest)
             } else {
                 error
             }
         })?;
         let signature = encode_replay_result(response.get_ref())
-            .ok_or_else(|| recovery_status("invalid-enclave-result", &claim.digest))?;
+            .ok_or_else(|| recovery_status(RecoveryOutcome::InvalidEnclaveResult, &claim.digest))?;
         self.commit_signed_result(claim, signature, budget).await?;
         Ok(response)
     }
@@ -1373,7 +1393,7 @@ impl SecureSign for Gateway {
             .await
             .map_err(|_| {
                 recovery_status(
-                    "signing-outcome-unknown",
+                    RecoveryOutcome::Unknown,
                     &hex::encode(Sha256::digest(sign_data)),
                 )
             })?
@@ -1474,7 +1494,7 @@ impl SecureSign for Gateway {
             client.sign_transaction(enclave_request),
         )
         .await
-        .map_err(|_| recovery_status("signing-outcome-unknown", &digest))?
+        .map_err(|_| recovery_status(RecoveryOutcome::Unknown, &digest))?
         .map_err(|error| transport_signing_status(error, &digest))
     }
 
