@@ -12,6 +12,9 @@ only; it does not decide which callers or keys may sign platform operations. The
 is declared in `neo-os-web/docs/workspace/neoos-target-architecture.v1.json` and checked
 by the architecture source-coverage gate.
 
+Proposed v2 binding: in `neo-os-web/docs/workspace/neoos-target-architecture.v2.json` (status `PROPOSED`, validated by `npm run check:architecture:v2` in `neo-os-web`) this repository is v2 layer L3 (gateway) and owns C13 custody. The v1 binding above remains the enforced contract until the v2 adoption procedure completes.
+
+
 ## Overview
 Neo Signer RS is a fail-closed signing service for
 [Neo](https://github.com/neo-project). It keeps private-key operations inside a
