@@ -1,0 +1,77 @@
+name: ci
+
+# This repository had no workflows at all. It holds the custody signer, so
+# "compiles and its tests pass" was being asserted by nothing outside a
+# workstation.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      # There is no rust-toolchain.toml here, so the runner's default toolchain
+      # decides the compiler. Adding one is a repository decision with a
+      # reproducibility argument behind it (neo-os-services pins 1.98.0) and is
+      # left to the owner rather than made implicitly by this file.
+      - name: Show toolchain
+        run: |
+          rustc --version
+          cargo --version
+
+      # --workspace covers the seven members listed in Cargo.toml. The two SGX
+      # crates (secure-sign-sgx, secure-sign-sgx-enclave) are deliberately not
+      # members: they are separate workspaces that need an SGX SDK, so building
+      # them on a stock runner would fail for an environment reason rather than
+      # a code one.
+      - name: Check
+        run: cargo check --workspace --all-targets
+
+      - name: Test
+        run: cargo test --workspace
+
+  dependency-audit:
+    # Deliberately separate from build-and-test and deliberately not a
+    # dependency of it: an advisory is news about the outside world, and letting
+    # it block an unrelated change is how a repository learns to ignore its own
+    # CI. Keep this off the required list and read it.
+    #
+    # EXPECTED RED on the first run. `cargo audit` exits 1 on two advisories:
+    #
+    #   rustls 0.23.43  RUSTSEC-2026-0285, TLS 1.3 handshake messages accepted
+    #                   across encryption level boundaries; fixed in >=0.23.45,
+    #                   a patch bump inside the same minor
+    #   rsa 0.9.10      RUSTSEC-2023-0071 Marvin, no fixed upgrade published
+    #
+    # The rustls bump is the actionable one and belongs to the dependency lane,
+    # not to this file; the rsa advisory has no upstream fix and needs a written
+    # risk acceptance in audit.toml rather than a silent pass.
+    name: dependency-audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+
+      - name: Audit
+        run: cargo audit
