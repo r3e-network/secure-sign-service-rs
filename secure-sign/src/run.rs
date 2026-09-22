@@ -6,7 +6,6 @@ use std::error::Error;
 #[allow(unused_imports)]
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
-use secure_sign_core::neo::consensus::NEO_N3_MAINNET_MAGIC;
 use secure_sign_core::neo::nep6::Nep6Wallet;
 use secure_sign_core::random::EnvCryptRandom;
 use secure_sign_rpc::startpb::startup_service_server::StartupServiceServer;
@@ -45,10 +44,13 @@ pub(crate) struct RunCmd {
     )]
     pub cid: u32,
 
+    // Required, with no default. A signer is where operator intent has to be
+    // explicit: defaulting to mainnet magic made "which network does this key
+    // sign for" a silent assumption. (Mainnet is 860833102.)
     #[arg(
         long,
-        help = "The only Neo network magic this consensus signer may sign",
-        default_value_t = NEO_N3_MAINNET_MAGIC
+        required = true,
+        help = "The only Neo network magic this consensus signer may sign (required; mainnet is 860833102)"
     )]
     pub network: u32,
 

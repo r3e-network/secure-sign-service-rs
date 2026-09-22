@@ -36,12 +36,19 @@ jobs:
           cargo --version
 
       # --workspace covers the seven members listed in Cargo.toml. The two SGX
-      # crates (secure-sign-sgx, secure-sign-sgx-enclave) are deliberately not
-      # members: they are separate workspaces that need an SGX SDK, so building
-      # them on a stock runner would fail for an environment reason rather than
-      # a code one.
+      # crates (secure-sign-sgx, secure-sign-sgx-enclave) are separate
+      # workspaces, not members.
       - name: Check
         run: cargo check --workspace --all-targets
+
+      # The SGX HOST crate type-checks on a stock runner: `cargo check` does not
+      # link, so the missing SGX SDK library does not matter here. It is checked
+      # explicitly because it once stopped compiling (2x E0046, missing trait
+      # methods) and nothing noticed - a crate CI never looks at regresses
+      # silently. The ENCLAVE crate needs the SGX target and SDK to build at all,
+      # so it stays out.
+      - name: Check SGX host crate
+        run: cargo check --manifest-path secure-sign-sgx/Cargo.toml --all-targets --locked
 
       - name: Test
         run: cargo test --workspace

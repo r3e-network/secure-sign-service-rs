@@ -140,10 +140,11 @@ manager, CA bundle, or general-purpose Linux userland. The resulting EIF still
 contains the encrypted wallet and must be handled as sensitive infrastructure
 material.
 
-The Nitro command is consensus-only by default. It accepts only Neo N3 mainnet
-magic `860833102`, `dBFT` extensible payloads, recognized N3 consensus message
-types, and a single signer matching the payload sender. Use `--network` when
-building a deliberately separate signer for another Neo network.
+The Nitro command is consensus-only. It accepts only the Neo network magic
+passed with the **required** `--network` flag (Neo N3 mainnet is `860833102`;
+there is no default, so a signer never assumes a network), `dBFT` extensible
+payloads, recognized N3 consensus message types, and a single signer matching
+the payload sender. `mock`, `run` and the SGX `run` all require `--network`.
 
 ## Usage
 
@@ -152,21 +153,31 @@ building a deliberately separate signer for another Neo network.
 # Run with TCP server on localhost
 ./target/secure-sign-tcp mock \
     --wallet config/nep6_wallet.json \
+    --network 860833102 \
     --port 9991 \
     --passphrase "your-wallet-passphrase"
 
 # Run with custom port
 ./target/secure-sign-tcp mock \
     --wallet config/nep6_wallet.json \
+    --network 860833102 \
     --port 8080 \
     --passphrase "your-wallet-passphrase"
 ```
 
 ### SGX Mode
-NOTE: Must run `secure-sign-tools` to decrypt wallet after start up
+NOTE: Must run `secure-sign-tools` to decrypt wallet after start up.
+
+`SIGNER_NETWORK` must be set to the Neo network magic this signer may sign
+(mainnet: `860833102`); `run.sh` refuses to start without it.
+
+The SGX consensus policy (network, dBFT category, pinned sender) is enforced on
+the **host** side only. The enclave entry points do not yet re-check it, and the
+host is outside the SGX trust boundary - so on SGX this is defence in depth, not
+a boundary control. `SignTransaction` is not available on the SGX path.
 ```bash
 # Run SGX application
-./scripts/sgx/run.sh \
+SIGNER_NETWORK=860833102 ./scripts/sgx/run.sh \
     --sgx-bin ./secure-sign-sgx/target/secure-sign-sgx \
     --enclave-bin ./secure-sign-sgx-enclave/secure_sign_sgx_enclave.signed.so
 

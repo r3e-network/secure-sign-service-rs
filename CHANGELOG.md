@@ -8,8 +8,38 @@ changes.
 
 ## [Unreleased]
 
+### Erratum for 26881ab
+
+The commit message of 26881ab ("enforce consensus policy and stop tracking a
+wallet") made two claims that were not true of that commit:
+
+- It called `--network` a "required" flag. It was not: `mock`, `run` and the
+  SGX `run` defaulted to Neo N3 mainnet magic. It is now required with no
+  default (see Security below).
+- It said SGX `SignTransaction` "re-runs GasSweepSigningPolicy". It does not:
+  it returns a typed `Unimplemented` by design, and the gas-sweep policy has not
+  been ported to the SGX path.
+
+It also described the committed NEP-6 wallet as a custody credential. Both of
+its accounts decrypt with the passphrase `xyz` published in this crate's own
+unit tests, and account 1's private key is the test key `0x01` x 32: it was a
+test fixture with no secret in it. It stays untracked because the README
+pointed operators at that exact path.
+
+
 ### Security
 
+- `--network` is required, with no default, on `mock`, `run` and the SGX `run`.
+  A signer never assumes which network it signs for; `scripts/sgx/run.sh`
+  refuses to start without `SIGNER_NETWORK`.
+- CI type-checks the SGX host crate (`cargo check` does not link, so no SGX SDK
+  is needed). It had stopped compiling once without anything noticing.
+- The tracked-wallet gate reads staged blobs rather than working-tree files,
+  scans every tracked file for NEP-2 keys regardless of extension, and finds
+  wallet structure at any JSON depth. Two published NEP-2 test vectors are
+  allowlisted by fingerprint; any other key fails the gate.
+- Documented that the SGX consensus policy is host-side defence in depth only:
+  the enclave entry points do not yet re-check network or category.
 - Run raw-path identity, size, MAC, and dBFT schema checks before the
   consensus single-flight permit so a flood of bad-MAC requests cannot
   stall `SignBlock`. Cap `GetAccountStatus` at 4 in-flight vsock calls.

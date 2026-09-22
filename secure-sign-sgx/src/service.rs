@@ -21,6 +21,17 @@ use tonic::async_trait;
 /// Host-side request gating mirrors [`secure_sign_rpc::DefaultSignService`]:
 /// a non-optional [`ConsensusSigningPolicy`] validates network + dBFT category +
 /// pinned sender on every consensus-bearing request before any enclave ecall.
+///
+/// This is HOST-SIDE defence in depth only. Under the SGX threat model the host
+/// is untrusted, and the enclave entry points
+/// (`secure_sign_sgx_sign_block`, `secure_sign_sgx_sign_extensible_payload` in
+/// `secure-sign-sgx-enclave/src/lib.rs`) do not yet re-check network or
+/// category themselves. A compromised host can therefore bypass this gate.
+/// Moving the policy into the enclave, with the network fixed at enclave build
+/// or startup, is the boundary fix and is tracked as open work.
+///
+/// `SignTransaction` is deliberately `Unimplemented` here (typed, not a pass):
+/// the gas-sweep policy has not been ported to the SGX path.
 pub struct SgxSignService {
     /// Keeps the enclave loaded for the service lifetime. `None` only in
     /// host-side gate tests, which must reject every request before an ecall.
@@ -248,7 +259,7 @@ mod tests {
     }
 
     /// Regression (SSS-2): SgxSignService must apply the same consensus policy as
-    /// `DefaultSignService::new_consensus` — an attacker-chosen non-dBFT payload
+    /// `DefaultSignService::new` — an attacker-chosen non-dBFT payload
     /// is refused before any enclave ecall.
     #[tokio::test]
     async fn sign_extensible_payload_refuses_attacker_category() {

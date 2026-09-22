@@ -243,7 +243,9 @@ mod tests {
     use super::*;
     use secure_sign_core::h256::H256;
     use secure_sign_core::merkle::MerkleSha256;
-    use secure_sign_core::neo::consensus::{ConsensusMessageType, DBFT_CATEGORY, NEO_N3_MAINNET_MAGIC};
+    use secure_sign_core::neo::consensus::{
+        ConsensusMessageType, DBFT_CATEGORY, NEO_N3_MAINNET_MAGIC,
+    };
     use secure_sign_core::neo::gas_sweep_policy::script_hash_from_public_key;
     use secure_sign_core::neo::sign::{Account, Signer};
     use secure_sign_core::neo::signpb::{ExtensiblePayload, Header, TrimmedBlock};

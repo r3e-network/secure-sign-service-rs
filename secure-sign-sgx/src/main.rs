@@ -15,7 +15,6 @@ use std::sync::Arc;
 use crate::enclave::SgxEnclave;
 use crate::service::SgxSignService;
 
-use secure_sign_core::neo::consensus::NEO_N3_MAINNET_MAGIC;
 use secure_sign_rpc::startpb::startup_service_server::StartupServiceServer;
 
 use clap::{command, Parser, Subcommand};
@@ -43,10 +42,13 @@ pub struct RunCmd {
     #[arg(long, help = "Whether to run in debug mode", default_value = "false")]
     pub debug: bool,
 
+    // Required, with no default. A signer is where operator intent has to be
+    // explicit: defaulting to mainnet magic made "which network does this key
+    // sign for" a silent assumption. (Mainnet is 860833102.)
     #[arg(
         long,
-        help = "The only Neo network magic this consensus signer may sign",
-        default_value_t = NEO_N3_MAINNET_MAGIC
+        required = true,
+        help = "The only Neo network magic this consensus signer may sign (required; mainnet is 860833102)"
     )]
     pub network: u32,
 }

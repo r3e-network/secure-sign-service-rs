@@ -34,13 +34,20 @@ if [ ! -f "$SGX_BIN" ]; then
     exit 1
 fi
 
+# The signer must be told which Neo network it signs for; there is no default.
+# Mainnet magic is 860833102.
+if [ -z "${SIGNER_NETWORK:-}" ]; then
+    echo "SIGNER_NETWORK is not set: export the Neo network magic this signer may sign (mainnet: 860833102)"
+    exit 1
+fi
+
 if [ ! -f "$ENCLAVE_BIN" ]; then
     echo "Enclave binary not found at $ENCLAVE_BIN"
     exit 1
 fi
 
 if [ "$IS_DAEMON" = true ]; then
-    nohup $SGX_BIN run --enclave $ENCLAVE_BIN > sgx.log 2>&1 &
+    nohup $SGX_BIN run --enclave $ENCLAVE_BIN --network "$SIGNER_NETWORK" > sgx.log 2>&1 &
 else
-    $SGX_BIN run --enclave $ENCLAVE_BIN
+    $SGX_BIN run --enclave $ENCLAVE_BIN --network "$SIGNER_NETWORK"
 fi
