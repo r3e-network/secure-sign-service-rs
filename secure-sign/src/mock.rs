@@ -3,6 +3,7 @@
 
 use std::error::Error;
 
+use secure_sign_core::neo::consensus::NEO_N3_MAINNET_MAGIC;
 use secure_sign_core::neo::nep6::Nep6Wallet;
 use secure_sign_core::neo::sign::AccountDecrypting;
 use secure_sign_rpc::startup::StartSigner;
@@ -27,6 +28,13 @@ pub(crate) struct MockCmd {
     #[cfg(feature = "vsock")]
     #[arg(long, help = "The vsock context identifier")]
     pub cid: u32,
+
+    #[arg(
+        long,
+        help = "The only Neo network magic this consensus signer may sign",
+        default_value_t = NEO_N3_MAINNET_MAGIC
+    )]
+    pub network: u32,
 
     #[arg(
         long,
@@ -55,10 +63,13 @@ impl MockCmd {
             wallet.decrypt_accounts(passphrase.as_bytes())?
         };
 
+        // Mock runs the same consensus policy as production: network + dBFT
+        // category + pinned sender are enforced on every request.
         #[cfg(feature = "vsock")]
-        return DefaultStartSigner::with_vsock(self.cid, self.port).start(accounts);
+        return DefaultStartSigner::with_vsock_consensus(self.cid, self.port, self.network)
+            .start(accounts);
 
         #[cfg(not(feature = "vsock"))]
-        return DefaultStartSigner::with_tcp(self.port).start(accounts);
+        return DefaultStartSigner::with_tcp_consensus(self.port, self.network).start(accounts);
     }
 }

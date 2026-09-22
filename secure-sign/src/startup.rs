@@ -36,31 +36,21 @@ use zeroize::Zeroizing;
 pub struct DefaultStartSigner {
     cid: u32, // 0 if tcp
     port: u16,
-    consensus_network: Option<u32>,
+    /// The only Neo network magic this consensus signer may sign. Every start
+    /// path carries one; there is no policy-less startup constructor.
+    consensus_network: u32,
     enable_sign_transaction: bool,
     gas_sweep_destination: Option<String>,
     gas_sweep_destination_script_hash: Option<String>,
 }
 
 impl DefaultStartSigner {
-    #[allow(unused)]
-    pub fn with_vsock(cid: u32, port: u16) -> Self {
-        Self {
-            cid,
-            port,
-            consensus_network: None,
-            enable_sign_transaction: false,
-            gas_sweep_destination: None,
-            gas_sweep_destination_script_hash: None,
-        }
-    }
-
     #[cfg(feature = "vsock")]
     pub fn with_vsock_consensus(cid: u32, port: u16, network: u32) -> Self {
         Self {
             cid,
             port,
-            consensus_network: Some(network),
+            consensus_network: network,
             enable_sign_transaction: false,
             gas_sweep_destination: None,
             gas_sweep_destination_script_hash: None,
@@ -81,15 +71,44 @@ impl DefaultStartSigner {
     }
 
     #[allow(unused)]
-    pub fn with_tcp(port: u16) -> Self {
+    pub fn with_tcp_consensus(port: u16, network: u32) -> Self {
         Self {
             cid: 0,
             port,
-            consensus_network: None,
+            consensus_network: network,
             enable_sign_transaction: false,
             gas_sweep_destination: None,
             gas_sweep_destination_script_hash: None,
         }
+    }
+
+    /// Builds the [`DefaultSignService`] this starter serves — always gated by
+    /// [`secure_sign_core::neo::consensus::ConsensusSigningPolicy`] for
+    /// `self.consensus_network`. Factored out so tests exercise exactly the
+    /// object the mock and TCP run paths put on the wire.
+    fn build_sign_service(
+        &self,
+        accounts: Vec<Account>,
+    ) -> Result<DefaultSignService, Box<dyn Error>> {
+        let source_public_key = accounts
+            .first()
+            .ok_or("no accounts available to start signer")?
+            .keypair
+            .public_key()
+            .to_compressed()
+            .to_vec();
+        let network = self.consensus_network;
+        let gas_sweep_policy = secure_sign_core::neo::gas_sweep_policy::build_deploy_policy(
+            network,
+            self.enable_sign_transaction,
+            source_public_key,
+            self.gas_sweep_destination.as_deref(),
+            self.gas_sweep_destination_script_hash.as_deref(),
+        )
+        .map_err(|err| format!("gas sweep deploy config: {err}"))?;
+
+        let signer = Signer::new(accounts);
+        Ok(DefaultSignService::new(signer, network).with_gas_sweep_policy(gas_sweep_policy))
     }
 }
 
@@ -98,28 +117,7 @@ impl StartSigner for DefaultStartSigner {
         if accounts.is_empty() {
             return Err("no accounts available to start signer".into());
         }
-        let source_public_key = accounts[0].keypair.public_key().to_compressed().to_vec();
-        let enable = self.enable_sign_transaction;
-        let dest = self.gas_sweep_destination.clone();
-        let dest_hash = self.gas_sweep_destination_script_hash.clone();
-        let network_for_policy = self
-            .consensus_network
-            .unwrap_or(secure_sign_core::neo::consensus::NEO_N3_MAINNET_MAGIC);
-        let gas_sweep_policy = secure_sign_core::neo::gas_sweep_policy::build_deploy_policy(
-            network_for_policy,
-            enable,
-            source_public_key,
-            dest.as_deref(),
-            dest_hash.as_deref(),
-        )
-        .map_err(|err| format!("gas sweep deploy config: {err}"))?;
-
-        let signer = Signer::new(accounts);
-        let sign_service = match self.consensus_network {
-            Some(network) => DefaultSignService::new_consensus(signer, network),
-            None => DefaultSignService::new(signer),
-        }
-        .with_gas_sweep_policy(gas_sweep_policy);
+        let sign_service = self.build_sign_service(accounts)?;
         let router = Server::builder()
             .accept_http1(true)
             .add_service(secure_sign_rpc::bounded_secure_sign_server(sign_service));
@@ -289,5 +287,98 @@ impl RecipientProvider for NitroRecipientProvider {
             Self::decrypt_cfr_with_openssl(&private_key, ciphertext_for_recipient)?;
 
         Ok(Zeroizing::new(wallet_passphrase))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use secure_sign_core::h160::H160;
+    use secure_sign_core::neo::consensus::{DBFT_CATEGORY, NEO_N3_MAINNET_MAGIC};
+    use secure_sign_core::neo::gas_sweep_policy::script_hash_from_public_key;
+    use secure_sign_core::neo::signpb::ExtensiblePayload;
+    use secure_sign_core::random::EnvCryptRandom;
+    use secure_sign_core::secp256r1::Keypair;
+    use secure_sign_rpc::servicepb::secure_sign_server::SecureSign;
+    use secure_sign_rpc::servicepb::SignExtensiblePayloadRequest;
+
+    fn test_account() -> (Account, Vec<u8>, H160) {
+        let keypair = Keypair::gen_random(&mut EnvCryptRandom).expect("keypair generation");
+        let public_key = keypair.public_key().to_compressed().to_vec();
+        let script_hash = script_hash_from_public_key(&public_key).expect("script hash");
+        (
+            Account {
+                keypair,
+                contract: None,
+                is_locked: false,
+            },
+            public_key,
+            script_hash,
+        )
+    }
+
+    fn commit_payload(sender: H160) -> ExtensiblePayload {
+        let mut data = vec![0x30u8]; // dBFT Commit
+        data.extend_from_slice(&42u32.to_le_bytes());
+        data.push(1);
+        data.push(0);
+        data.extend_from_slice(&[0u8; 64]);
+        ExtensiblePayload {
+            category: DBFT_CATEGORY.to_string(),
+            valid_block_start: 0,
+            valid_block_end: 42,
+            sender: sender.as_le_bytes().to_vec(),
+            data,
+        }
+    }
+
+    /// Regression (SSS-1) on the exact service object `secure-sign mock` and the
+    /// TCP-build `secure-sign run` path put on the wire: an attacker-chosen
+    /// non-dBFT payload must be refused, not signed.
+    #[tokio::test]
+    async fn tcp_run_path_refuses_attacker_category_payload() {
+        let (account, _public_key, script_hash) = test_account();
+        let starter = DefaultStartSigner::with_tcp_consensus(0, NEO_N3_MAINNET_MAGIC);
+        let service = starter
+            .build_sign_service(vec![account])
+            .expect("sign service construction");
+
+        let mut attacker = commit_payload(script_hash);
+        attacker.category = "ATTACKER".to_string();
+
+        let req = SignExtensiblePayloadRequest {
+            payload: Some(attacker),
+            script_hashes: vec![script_hash.as_le_bytes().to_vec()],
+            network: NEO_N3_MAINNET_MAGIC,
+        };
+        let err = service
+            .sign_extensible_payload(tonic::Request::new(req))
+            .await
+            .expect_err("non-dBFT payload must be refused on the mock/TCP path");
+        assert_eq!(err.code(), tonic::Code::PermissionDenied);
+    }
+
+    /// Positive control on the same construction path: a well-formed dBFT Commit
+    /// is still signed on the pinned network.
+    #[tokio::test]
+    async fn tcp_run_path_signs_valid_dbft_commit() {
+        let (account, _public_key, script_hash) = test_account();
+        let starter = DefaultStartSigner::with_tcp_consensus(0, NEO_N3_MAINNET_MAGIC);
+        let service = starter
+            .build_sign_service(vec![account])
+            .expect("sign service construction");
+
+        let req = SignExtensiblePayloadRequest {
+            payload: Some(commit_payload(script_hash)),
+            script_hashes: vec![script_hash.as_le_bytes().to_vec()],
+            network: NEO_N3_MAINNET_MAGIC,
+        };
+        let res = service
+            .sign_extensible_payload(tonic::Request::new(req))
+            .await
+            .expect("valid dBFT commit must be signed")
+            .into_inner();
+        assert_eq!(res.signs.len(), 1);
+        assert_eq!(res.signs[0].signs.len(), 1);
     }
 }

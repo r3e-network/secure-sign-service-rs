@@ -97,26 +97,29 @@ pub fn to_h160_vec(source: Vec<Vec<u8>>) -> Result<Vec<H160>, tonic::Status> {
     Ok(h160s)
 }
 
+/// Signing service that is always gated by a [`ConsensusSigningPolicy`].
+///
+/// Every constructor installs a consensus policy and every consensus-bearing RPC
+/// is validated against it before any key is used: the network magic must match,
+/// extensible payloads must be dBFT with the sender pinned to the requested
+/// signer. There is no constructor that can build a policy-less service.
 pub struct DefaultSignService {
     signer: Signer,
-    consensus_policy: Option<ConsensusSigningPolicy>,
+    consensus_policy: ConsensusSigningPolicy,
     gas_sweep_policy: GasSweepSigningPolicy,
 }
 
 impl DefaultSignService {
-    pub fn new(signer: Signer) -> Self {
+    /// Builds a service that refuses every request the consensus policy rejects.
+    ///
+    /// `network` is the only Neo network magic this signer may sign for. Gas
+    /// sweep (economic) signing stays disabled until explicitly configured via
+    /// [`Self::with_gas_sweep_enabled`] or [`Self::with_gas_sweep_policy`].
+    pub fn new(signer: Signer, network: u32) -> Self {
         Self {
             signer,
-            consensus_policy: None,
+            consensus_policy: ConsensusSigningPolicy::new(network),
             // Feature flag default OFF — economic signing refused until explicitly enabled.
-            gas_sweep_policy: GasSweepSigningPolicy::mainnet_default_off(),
-        }
-    }
-
-    pub fn new_consensus(signer: Signer, network: u32) -> Self {
-        Self {
-            signer,
-            consensus_policy: Some(ConsensusSigningPolicy::new(network)),
             gas_sweep_policy: GasSweepSigningPolicy::new(network, false),
         }
     }
@@ -149,11 +152,9 @@ impl SecureSign for DefaultSignService {
         let Some(payload) = req.payload.as_ref() else {
             return Err(tonic::Status::invalid_argument("payload is required"));
         };
-        if let Some(policy) = self.consensus_policy.as_ref() {
-            policy
-                .validate_extensible_payload(payload, &script_hashes, req.network)
-                .map_err(Self::policy_status)?;
-        }
+        self.consensus_policy
+            .validate_extensible_payload(payload, &script_hashes, req.network)
+            .map_err(Self::policy_status)?;
 
         self.signer
             .sign_extensible_payload(payload, script_hashes, req.network)
@@ -174,11 +175,9 @@ impl SecureSign for DefaultSignService {
         let Some(block) = req.block.as_ref() else {
             return Err(tonic::Status::invalid_argument("block is required"));
         };
-        if let Some(policy) = self.consensus_policy.as_ref() {
-            policy
-                .validate_network(req.network)
-                .map_err(Self::policy_status)?;
-        }
+        self.consensus_policy
+            .validate_network(req.network)
+            .map_err(Self::policy_status)?;
 
         self.signer
             .sign_block(&req.public_key, block, req.network)
@@ -236,5 +235,179 @@ impl SecureSign for DefaultSignService {
             idempotency_key: req.idempotency_key,
             cache_hit: false,
         }))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use secure_sign_core::h256::H256;
+    use secure_sign_core::merkle::MerkleSha256;
+    use secure_sign_core::neo::consensus::{ConsensusMessageType, DBFT_CATEGORY, NEO_N3_MAINNET_MAGIC};
+    use secure_sign_core::neo::gas_sweep_policy::script_hash_from_public_key;
+    use secure_sign_core::neo::sign::{Account, Signer};
+    use secure_sign_core::neo::signpb::{ExtensiblePayload, Header, TrimmedBlock};
+    use secure_sign_core::random::EnvCryptRandom;
+    use secure_sign_core::secp256r1::Keypair;
+
+    struct TestSigner {
+        signer: Signer,
+        public_key: Vec<u8>,
+        script_hash: H160,
+    }
+
+    fn test_signer() -> TestSigner {
+        let keypair = Keypair::gen_random(&mut EnvCryptRandom).expect("keypair generation");
+        let public_key = keypair.public_key().to_compressed().to_vec();
+        let script_hash = script_hash_from_public_key(&public_key).expect("script hash");
+        let account = Account {
+            keypair,
+            contract: None,
+            is_locked: false,
+        };
+        TestSigner {
+            signer: Signer::new(vec![account]),
+            public_key,
+            script_hash,
+        }
+    }
+
+    /// Well-formed dBFT Commit payload for the given sender (header + 64-byte body).
+    fn commit_payload(sender: H160) -> ExtensiblePayload {
+        let mut data = vec![ConsensusMessageType::Commit as u8];
+        data.extend_from_slice(&42u32.to_le_bytes()); // block index
+        data.push(1); // validator index
+        data.push(0); // view number
+        data.extend_from_slice(&[0u8; 64]); // commit body
+        ExtensiblePayload {
+            category: DBFT_CATEGORY.to_string(),
+            valid_block_start: 0,
+            valid_block_end: 42,
+            sender: sender.as_le_bytes().to_vec(),
+            data,
+        }
+    }
+
+    /// Well-formed empty trimmed block whose merkle root matches its (empty) tx set.
+    fn empty_block() -> TrimmedBlock {
+        TrimmedBlock {
+            header: Some(Header {
+                version: 0,
+                prev_hash: vec![0u8; 32],
+                merkle_root: Vec::<H256>::new().merkle_sha256().as_le_bytes().to_vec(),
+                timestamp: 1,
+                nonce: 2,
+                index: 42,
+                primary_index: 0,
+                next_consensus: vec![0u8; 20],
+                prev_state_root: vec![],
+                state_root_enabled: false,
+            }),
+            tx_hashes: vec![],
+        }
+    }
+
+    /// Regression (SSS-1): an attacker-chosen non-dBFT payload must never be signed.
+    /// Without the mandatory consensus policy this request produced one signature
+    /// over category="ATTACKER"; the policy must refuse it before any key is used.
+    #[tokio::test]
+    async fn sign_extensible_payload_refuses_attacker_category() {
+        let t = test_signer();
+        let service = DefaultSignService::new(t.signer, NEO_N3_MAINNET_MAGIC);
+
+        let mut attacker = commit_payload(t.script_hash);
+        attacker.category = "ATTACKER".to_string();
+
+        let req = SignExtensiblePayloadRequest {
+            payload: Some(attacker),
+            script_hashes: vec![t.script_hash.as_le_bytes().to_vec()],
+            network: NEO_N3_MAINNET_MAGIC,
+        };
+        let err = service
+            .sign_extensible_payload(tonic::Request::new(req))
+            .await
+            .expect_err("non-dBFT payload must be refused");
+        assert_eq!(err.code(), tonic::Code::PermissionDenied);
+    }
+
+    /// Regression (SSS-1): a block request on an attacker-chosen network must not
+    /// produce a block signature.
+    #[tokio::test]
+    async fn sign_block_refuses_attacker_network() {
+        let t = test_signer();
+        let service = DefaultSignService::new(t.signer, NEO_N3_MAINNET_MAGIC);
+
+        let req = SignBlockRequest {
+            block: Some(empty_block()),
+            public_key: t.public_key.clone(),
+            network: u32::from_be_bytes(*b"ATTC"), // attacker-chosen, not the pinned network
+        };
+        let err = service
+            .sign_block(tonic::Request::new(req))
+            .await
+            .expect_err("foreign network must be refused");
+        assert_eq!(err.code(), tonic::Code::PermissionDenied);
+    }
+
+    /// Positive control: a well-formed dBFT Commit is still signed on the pinned network.
+    #[tokio::test]
+    async fn sign_extensible_payload_signs_valid_dbft_commit() {
+        let t = test_signer();
+        let service = DefaultSignService::new(t.signer, NEO_N3_MAINNET_MAGIC);
+
+        let req = SignExtensiblePayloadRequest {
+            payload: Some(commit_payload(t.script_hash)),
+            script_hashes: vec![t.script_hash.as_le_bytes().to_vec()],
+            network: NEO_N3_MAINNET_MAGIC,
+        };
+        let res = service
+            .sign_extensible_payload(tonic::Request::new(req))
+            .await
+            .expect("valid dBFT commit must be signed")
+            .into_inner();
+        assert_eq!(res.signs.len(), 1);
+        assert_eq!(res.signs[0].signs.len(), 1);
+        assert_eq!(res.signs[0].signs[0].signature.len(), 64);
+    }
+
+    /// Positive control: a well-formed block is still signed on the pinned network.
+    #[tokio::test]
+    async fn sign_block_signs_on_pinned_network() {
+        let t = test_signer();
+        let service = DefaultSignService::new(t.signer, NEO_N3_MAINNET_MAGIC);
+
+        let req = SignBlockRequest {
+            block: Some(empty_block()),
+            public_key: t.public_key.clone(),
+            network: NEO_N3_MAINNET_MAGIC,
+        };
+        let res = service
+            .sign_block(tonic::Request::new(req))
+            .await
+            .expect("block on the pinned network must be signed")
+            .into_inner();
+        assert_eq!(res.signature.len(), 64);
+    }
+
+    /// Economic signing must stay off until explicitly enabled.
+    #[tokio::test]
+    async fn sign_transaction_refused_while_gas_sweep_disabled() {
+        let t = test_signer();
+        let service = DefaultSignService::new(t.signer, NEO_N3_MAINNET_MAGIC);
+
+        let req = SignTransactionRequest {
+            raw_tx: vec![0u8; 32],
+            public_key: t.public_key,
+            network: NEO_N3_MAINNET_MAGIC,
+            idempotency_key: "test-key".to_string(),
+            client_dry_run_id: String::new(),
+            expected_amount: 0,
+            expected_fee_total: 0,
+        };
+        let err = service
+            .sign_transaction(tonic::Request::new(req))
+            .await
+            .expect_err("economic signing must stay off by default");
+        assert_eq!(err.code(), tonic::Code::Unimplemented);
     }
 }

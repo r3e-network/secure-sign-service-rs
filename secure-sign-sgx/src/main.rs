@@ -15,6 +15,7 @@ use std::sync::Arc;
 use crate::enclave::SgxEnclave;
 use crate::service::SgxSignService;
 
+use secure_sign_core::neo::consensus::NEO_N3_MAINNET_MAGIC;
 use secure_sign_rpc::startpb::startup_service_server::StartupServiceServer;
 
 use clap::{command, Parser, Subcommand};
@@ -41,6 +42,13 @@ pub struct RunCmd {
 
     #[arg(long, help = "Whether to run in debug mode", default_value = "false")]
     pub debug: bool,
+
+    #[arg(
+        long,
+        help = "The only Neo network magic this consensus signer may sign",
+        default_value_t = NEO_N3_MAINNET_MAGIC
+    )]
+    pub network: u32,
 }
 
 impl RunCmd {
@@ -48,7 +56,7 @@ impl RunCmd {
         let enclave = SgxEnclave::new(self.enclave.clone(), None, self.debug)
             .map_err(|err| format!("Failed to create enclave: {}", err))?;
 
-        let service = Arc::new(SgxSignService::new(enclave));
+        let service = Arc::new(SgxSignService::new(enclave, self.network));
         let (tx, rx) = oneshot::channel::<()>();
 
         let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), self.port);

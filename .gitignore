@@ -4,8 +4,25 @@
 **/*.log
 **/*.pem
 **/*.eif
+# Wallet / key material must never be tracked. Gate:
+# secure-sign-core/tests/no_tracked_wallet_files.rs (runs in `cargo test --workspace`).
+#
+# Provenance: secure-sign/config/nep6_wallet.json WAS tracked here — a NEP-6
+# wallet with 2 accounts and scrypt n=64, r=2, p=2 (NEP-2 default is
+# n=16384, r=8, p=8, roughly 256x stronger). Untracked on 2026-09-23 and kept
+# on disk as local config only. History is the owner's to rewrite; these
+# patterns stop the next one.
+**/*.neopkg
 **/*.nep6.json
+**/nep6_wallet.json
 **/nep6-wallet.json
+**/nep6wallet.json
+**/*keystore*
+**/*.keystore
+**/*.p12
+**/*.pfx
+**/*.jks
+**/UTC--*
 **/wallet-config.yml
 .vscode/
 .idea/
