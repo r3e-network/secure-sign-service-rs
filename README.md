@@ -33,6 +33,10 @@ Raw and economic signing still default to disabled.
 - **SGX Mode**: For Intel SGX enclave deployment with hardware security
 - **AWS Nitro Enclave Mode**: For AWS Nitro Enclave deployment with isolated execution
 
+NeoOS production runs the AWS Nitro Enclave mode on an AWS Nitro parent instance.
+The SGX mode is not deployed by NeoOS; CI type-checks its host crate so it keeps
+compiling, and nothing more.
+
 ### Key Features
 - Hardware-based security through SGX and Nitro Enclaves
 - Secure key storage and management

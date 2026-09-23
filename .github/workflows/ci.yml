@@ -58,6 +58,10 @@ jobs:
       # silently. The ENCLAVE crate needs the SGX target and SDK to build at all,
       # so it stays out.
       #
+      # SGX is not the TEE NeoOS deploys (that is AWS Nitro Enclaves: the
+      # secure-sign-nitro member and the vsock build, checked in their own step
+      # below); this step only keeps the SGX mode compiling.
+      #
       # It needs a nightly compiler: sgx_types (teaclave-sgx-sdk v1.1.6) opens
       # with #![feature(error_in_core)], which stable rejects with E0554. The pin
       # is the nightly this check was proved on; the workspace above still
@@ -70,6 +74,22 @@ jobs:
 
       - name: Test
         run: cargo test --workspace
+
+      # secure-sign has no default features, so the workspace check and tests
+      # above build it with no transport. NeoOS production runs the vsock build
+      # (AWS Nitro Enclave; Makefile: --features vsock) and tcp is the
+      # non-enclave transport. The two are mutually exclusive (compile_error!),
+      # so each gets its own run. The vsock build was never compiled here, and a
+      # CLI test that only fails in it went unnoticed.
+      - name: Check and test the Nitro (vsock) build
+        run: |
+          cargo check -p secure-sign --no-default-features --features vsock --all-targets --locked
+          cargo test -p secure-sign --no-default-features --features vsock --locked
+
+      - name: Check and test the tcp build
+        run: |
+          cargo check -p secure-sign --no-default-features --features tcp --all-targets --locked
+          cargo test -p secure-sign --no-default-features --features tcp --locked
 
   dependency-audit:
     # Deliberately separate from build-and-test and deliberately not a
