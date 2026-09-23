@@ -57,8 +57,16 @@ jobs:
       # methods) and nothing noticed - a crate CI never looks at regresses
       # silently. The ENCLAVE crate needs the SGX target and SDK to build at all,
       # so it stays out.
+      #
+      # It needs a nightly compiler: sgx_types (teaclave-sgx-sdk v1.1.6) opens
+      # with #![feature(error_in_core)], which stable rejects with E0554. The pin
+      # is the nightly this check was proved on; the workspace above still
+      # builds with the runner's stable toolchain.
+      - name: Install the SGX host toolchain
+        run: rustup toolchain install nightly-2025-08-30 --profile minimal
+
       - name: Check SGX host crate
-        run: cargo check --manifest-path secure-sign-sgx/Cargo.toml --all-targets --locked
+        run: cargo +nightly-2025-08-30 check --manifest-path secure-sign-sgx/Cargo.toml --all-targets --locked
 
       - name: Test
         run: cargo test --workspace
